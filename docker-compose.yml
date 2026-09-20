@@ -1,0 +1,71 @@
+services:
+  web:
+    build:
+      context: ./frontend
+      args:
+        VITE_WIKI_IMAGE_MODE: ${VITE_WIKI_IMAGE_MODE:-external}
+        VITE_MEDIA_MANIFEST_URL: ${VITE_MEDIA_MANIFEST_URL:-}
+        VITE_MEDIA_ALLOWED_ORIGINS: ${VITE_MEDIA_ALLOWED_ORIGINS:-}
+    ports: ["5173:80"]
+    depends_on: [api]
+
+  api:
+    build: ./backend
+    environment:
+      APP_PORT: 8080
+      COS_BUCKET: ${COS_BUCKET:-}
+      COS_REGION: ${COS_REGION:-}
+      COS_SECRET_ID: ${COS_SECRET_ID:-}
+      COS_SECRET_KEY: ${COS_SECRET_KEY:-}
+      COS_SESSION_TOKEN: ${COS_SESSION_TOKEN:-}
+      DATABASE_DRIVER: mysql
+      MYSQL_DSN: mathwiki:mathwiki@tcp(mysql:3306)/mathwiki?charset=utf8mb4&parseTime=True&loc=Local
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      ELASTICSEARCH_INDEX: mathwiki_articles
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-chat}
+      STT_PROVIDER: ${STT_PROVIDER:-mock}
+      DEMO_SEED: ${DEMO_SEED:-true}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_TLS_MODE: ${SMTP_TLS_MODE:-tls}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+    ports: ["8080:8080"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: mathwiki
+      MYSQL_USER: mathwiki
+      MYSQL_PASSWORD: mathwiki
+      MYSQL_ROOT_PASSWORD: root
+    ports: ["3306:3306"]
+    volumes:
+      - type: bind
+        source: ${MATHWIKI_DATA_ROOT:-E:/MathWikiData}/mysql
+        target: /var/lib/mysql
+    command: ["mysqld", "--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci"]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  elasticsearch:
+    build: ./infrastructure/elasticsearch
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms768m -Xmx768m
+    ports: ["9200:9200"]
+    volumes:
+      - type: bind
+        source: ${MATHWIKI_DATA_ROOT:-E:/MathWikiData}/elasticsearch
+        target: /usr/share/elasticsearch/data

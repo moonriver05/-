@@ -1,0 +1,13 @@
+.cache
+bin
+.env
+.env.*
+!.env.example
+*.db
+*.db-*
+*.sqlite*
+*.sql
+*.dump
+*.log
+*.pem
+*.key
