@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "articles": 5000,
+  "sections": 48845,
+  "categories": [
+    "代数",
+    "几何学",
+    "初等数学",
+    "动态规划",
+    "图算法",
+    "图论",
+    "字符串算法",
+    "微积分",
+    "排序算法",
+    "搜尋演算法",
+    "数值分析",
+    "数学分析",
+    "数据结构",
+    "数论",
+    "數理邏輯",
+    "机器学习算法",
+    "概率论",
+    "离散数学",
+    "算术",
+    "算法",
+    "线性代数",
+    "组合数学",
+    "统计学",
+    "計算幾何",
+    "集合论"
+  ],
+  "parts": [
+    {
+      "file": "articles-001.jsonl",
+      "bytes": 20924626,
+      "sha256": "8561c8fca6ea5ad7e8ae821d50164f3ee93c65b7a7d58f3b70af0c1e6f1b5430",
+      "articles": 323,
+      "sections": 5482
+    },
+    {
+      "file": "articles-002.jsonl",
+      "bytes": 20966036,
+      "sha256": "045bb5a659814bf2f8df95e98cd1c65dc92e756cbcf7d909372238ec504fad9b",
+      "articles": 498,
+      "sections": 6058
+    },
+    {
+      "file": "articles-003.jsonl",
+      "bytes": 20947657,
+      "sha256": "4b77b7532f4003d01074586533b2c86bbc5a7e2ec02bde8b716c9aa6b92d26b7",
+      "articles": 591,
+      "sections": 6220
+    },
+    {
+      "file": "articles-004.jsonl",
+      "bytes": 20955899,
+      "sha256": "3a0136a259707ada9cfa76be7d1930e75af299151a40754c92fcf98efe367b04",
+      "articles": 676,
+      "sections": 6458
+    },
+    {
+      "file": "articles-005.jsonl",
+      "bytes": 20956935,
+      "sha256": "22705144d4fc459155a18a29721a071481b65b5b8ffa1ffa89eb2df9435373dd",
+      "articles": 729,
+      "sections": 6461
+    },
+    {
+      "file": "articles-006.jsonl",
+      "bytes": 20967271,
+      "sha256": "a2deb334b8ccbb57c60dc4dedeabe516e08c68f62dbcfbf4ab1fdb34ec266b40",
+      "articles": 785,
+      "sections": 6690
+    },
+    {
+      "file": "articles-007.jsonl",
+      "bytes": 20922183,
+      "sha256": "d2d458020ad1d7591c358f30cda8a47b7b4a4e3ac99bfccbc138f97f06ede95d",
+      "articles": 777,
+      "sections": 6433
+    },
+    {
+      "file": "articles-008.jsonl",
+      "bytes": 17423262,
+      "sha256": "d7ceb07e5d0003fc337bf9b14a61a73fc8b7ab9c8fe52333fb2af79dc9fe9e19",
+      "articles": 621,
+      "sections": 5043
+    }
+  ]
+}

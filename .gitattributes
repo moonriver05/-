@@ -1,0 +1,2 @@
+# Snapshot hashes must match on Windows and Linux; never normalize JSONL bytes.
+datasets/public-knowledge/*.jsonl -text
