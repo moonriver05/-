@@ -7,6 +7,7 @@ import ArticleComments from './components/ArticleComments.vue'
 import ModerationPanel from './components/ModerationPanel.vue'
 import MyFeedbackPanel from './components/MyFeedbackPanel.vue'
 import { articleReviewLabel, type ModerationSection } from './moderation'
+import { searchRank, searchSortParam } from './searchRanking'
 import ProfilePage from './components/ProfilePage.vue'
 import UserAvatar from './components/UserAvatar.vue'
 import type { User } from './types'
@@ -38,6 +39,11 @@ const toast = ref<Toast | null>(null)
 const searchInput = ref<HTMLInputElement | null>(null)
 const listening = ref(false)
 const sortMode = ref('最近更新')
+const searchSortMode = ref('相关度')
+const displayedSortMode = computed({
+  get: () => query.value.trim() ? searchSortMode.value : sortMode.value,
+  set: (value: string) => { if (query.value.trim()) searchSortMode.value = value; else sortMode.value = value }
+})
 const activeType = ref('全部')
 const focusMode = ref(false)
 const apiState = ref<'loading' | 'online' | 'offline'>('loading')
@@ -169,10 +175,11 @@ const filteredArticles = computed(() => {
     if (activeCollection.value === '我的批注' && !seedAnnotations.some(n => n.articleId === a.id)) return false
     if (!['全部条目', '我的收藏', '最近阅读', '我的批注'].includes(activeCollection.value) && ![a.title, a.category, ...a.tags].join(' ').includes(activeCollection.value)) return false
     if (activeType.value !== '全部' && a.kind !== activeType.value) return false
-    return !q || [a.title, a.excerpt, a.category, ...a.tags].some(x => x.toLowerCase().includes(q))
+    return !q || Number.isFinite(searchRank(a, q))
   })
-  if (sortMode.value === '标题') result = [...result].sort((a, b) => a.title.localeCompare(b.title, 'zh-CN'))
-  if (sortMode.value === '难度') result = [...result].sort((a, b) => ['入门', '进阶', '高级'].indexOf(a.difficulty) - ['入门', '进阶', '高级'].indexOf(b.difficulty))
+  if (q && displayedSortMode.value === '相关度') result = [...result].sort((a, b) => searchRank(a, q) - searchRank(b, q))
+  if (displayedSortMode.value === '标题') result = [...result].sort((a, b) => a.title.localeCompare(b.title, 'zh-CN'))
+  if (displayedSortMode.value === '难度') result = [...result].sort((a, b) => ['入门', '进阶', '高级'].indexOf(a.difficulty) - ['入门', '进阶', '高级'].indexOf(b.difficulty))
   return result
 })
 
@@ -274,7 +281,7 @@ async function loadArticles(append = false) {
     collection: collectionKeys[activeCollection.value] ?? '',
     category: activeCollection.value in collectionKeys ? '' : activeCollection.value,
     kind: activeType.value === '全部' ? '' : activeType.value,
-    sort: sortMode.value === '标题' ? 'title' : sortMode.value === '难度' ? 'difficulty' : 'updated'
+    sort: searchSortParam(displayedSortMode.value)
   }
   try {
     const result = await api.listArticles(params)
@@ -312,7 +319,10 @@ async function loadBackendContent() {
 }
 
 let searchTimer: number | undefined
-watch([query, activeCollection, activeType, sortMode], () => {
+watch(query, (value, previous) => {
+  if (value.trim() && !previous.trim()) searchSortMode.value = '相关度'
+})
+watch([query, activeCollection, activeType, sortMode, searchSortMode], () => {
   window.clearTimeout(searchTimer)
   ++listRequest
   searchTimer = window.setTimeout(() => void loadArticles(), 220)
@@ -722,7 +732,7 @@ onUnmounted(() => {
       <section class="items-pane">
         <div class="items-header">
           <div><h2>{{ activeCollection }}</h2><span>{{ apiState === 'online' ? totalArticles : filteredArticles.length }} 个条目</span></div>
-          <select v-model="sortMode" aria-label="排序方式"><option>最近更新</option><option>标题</option><option>难度</option></select>
+          <select v-model="displayedSortMode" aria-label="排序方式"><option v-if="query.trim()">相关度</option><option>最近更新</option><option>标题</option><option>难度</option></select>
         </div>
         <div class="filter-row">
           <button v-for="type in ['全部', '概念', '算法', '例题']" :key="type" class="filter" :class="{ active: activeType === type }" @click="activeType = type">{{ type }}</button>

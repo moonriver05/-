@@ -160,9 +160,9 @@ func (s *Server) listArticles(c *gin.Context) {
 	if kind := strings.TrimSpace(c.Query("kind")); kind != "" {
 		query = query.Where("kind = ?", kind)
 	}
-	if keyword := strings.TrimSpace(c.Query("q")); keyword != "" {
-		like := "%" + keyword + "%"
-		query = query.Where("title LIKE ? OR `lead` LIKE ? OR tags LIKE ? OR plain_text LIKE ?", like, like, like, like)
+	keyword := strings.TrimSpace(c.Query("q"))
+	if keyword != "" {
+		query = matchKnowledge(query, keyword)
 	}
 	switch c.Query("collection") {
 	case "favorites":
@@ -178,16 +178,18 @@ func (s *Server) listArticles(c *gin.Context) {
 		return
 	}
 
-	if c.Query("collection") == "recent" {
-		query = query.Order(clause.Expr{SQL: "(SELECT MAX(updated_at) FROM reading_histories WHERE reading_histories.article_id = articles.id AND reading_histories.user_id = ?) DESC", Vars: []any{userID(c)}, WithoutParentheses: true})
+	if keyword != "" && (c.Query("sort") == "" || c.Query("sort") == "relevance") {
+		query = orderKnowledge(query, keyword)
+	} else if c.Query("collection") == "recent" && keyword == "" {
+		query = query.Clauses(clause.OrderBy{Expression: clause.Expr{SQL: "(SELECT MAX(updated_at) FROM reading_histories WHERE reading_histories.article_id = articles.id AND reading_histories.user_id = ?) DESC, articles.id ASC", Vars: []any{userID(c)}, WithoutParentheses: true}})
 	} else {
 		switch c.Query("sort") {
 		case "title":
-			query = query.Order("title ASC")
+			query = query.Order("title ASC, id ASC")
 		case "difficulty":
-			query = query.Order("CASE difficulty WHEN '入门' THEN 0 WHEN '进阶' THEN 1 ELSE 2 END ASC, title ASC")
+			query = query.Order("CASE difficulty WHEN '入门' THEN 0 WHEN '进阶' THEN 1 ELSE 2 END ASC, title ASC, id ASC")
 		default:
-			query = query.Order("updated_at DESC")
+			query = query.Order("updated_at DESC, id ASC")
 		}
 	}
 	page := positiveInt(c.Query("page"), 1)
@@ -246,10 +248,8 @@ func (s *Server) searchArticles(c *gin.Context) {
 	}
 
 	var articles []model.Article
-	like := "%" + q + "%"
-	if err := s.db.Scopes(publicArticles).Where("language = ? AND (title LIKE ? OR `lead` LIKE ? OR tags LIKE ?)", "zh-Hans", like, like, like).
-		Order(clause.Expr{SQL: "CASE WHEN title = ? THEN 0 WHEN title LIKE ? THEN 1 ELSE 2 END", Vars: []any{q, q + "%"}, WithoutParentheses: true}).
-		Order("updated_at DESC").
+	query := matchKnowledge(s.db.Scopes(publicArticles).Where("language = ?", "zh-Hans"), q)
+	if err := orderKnowledge(query, q).
 		Limit(maxResults).Find(&articles).Error; err != nil {
 		fail(c, err)
 		return
