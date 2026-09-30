@@ -61,6 +61,7 @@ type User struct {
 	Location        string     `json:"location" gorm:"size:240"`
 	Website         string     `json:"website" gorm:"size:512"`
 	Role            string     `json:"role" gorm:"size:24;default:learner"`
+	Banned          bool       `json:"banned" gorm:"not null;default:false"`
 	CreatedAt       time.Time  `json:"createdAt"`
 }
 
@@ -180,5 +181,26 @@ type Category struct {
 }
 
 func Migrate(db *gorm.DB) error {
-	return db.AutoMigrate(&Article{}, &Section{}, &User{}, &Session{}, &UserAvatar{}, &EmailVerification{}, &Annotation{}, &Comment{}, &ArticleComment{}, &ExplanationRecord{}, &Feedback{}, &Favorite{}, &ReadingHistory{}, &Category{})
+	return db.AutoMigrate(&Article{}, &Section{}, &User{}, &Session{}, &UserAvatar{}, &EmailVerification{}, &Annotation{}, &Comment{}, &ArticleComment{}, &ExplanationRecord{}, &Feedback{}, &Favorite{}, &ReadingHistory{}, &Category{}, &AnnotationLike{}, &CommunitySubmission{}, &PasswordReset{}, &AdminAudit{})
+}
+
+type AnnotationLike struct {
+	AnnotationID uint `gorm:"primaryKey"`
+	UserID       uint `gorm:"primaryKey"`
+}
+type CommunitySubmission struct {
+	ID          uint      `gorm:"primaryKey"`
+	UserID      uint      `gorm:"index:idx_submission_user_time"`
+	Fingerprint string    `gorm:"size:64"`
+	CreatedAt   time.Time `gorm:"index:idx_submission_user_time"`
+}
+type PasswordReset struct{ EmailVerification }
+type AdminAudit struct {
+	ID        uint      `json:"id" gorm:"primaryKey"`
+	UserID    uint      `json:"userId" gorm:"index"`
+	Action    string    `json:"action" gorm:"size:255"`
+	Target    string    `json:"target" gorm:"size:40"`
+	Reason    string    `json:"reason" gorm:"size:800"`
+	Status    int       `json:"status"`
+	CreatedAt time.Time `json:"createdAt" gorm:"index"`
 }

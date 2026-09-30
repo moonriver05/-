@@ -53,6 +53,7 @@ type annotationResponse struct {
 	CreatedAt time.Time `json:"createdAt"`
 	Replies   int       `json:"replies"`
 	Likes     int       `json:"likes"`
+	Liked     bool      `json:"liked"`
 }
 
 func toArticleResponse(article model.Article, saved bool) articleResponse {

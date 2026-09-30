@@ -40,7 +40,12 @@ func (s *Server) Router() *gin.Engine {
 	r.Use(gin.Logger(), gin.Recovery(), cors())
 	_ = r.SetTrustedProxies(nil)
 	r.GET("/health", s.health)
-	v1 := r.Group("/api/v1", s.authenticate)
+	v1 := r.Group("/api/v1", s.authenticate, s.auditAdmin)
+	v1.POST("/auth/reset-code", s.authRateLimit, s.sendPasswordResetCode)
+	v1.POST("/auth/reset-password", s.authRateLimit, s.resetPassword)
+	v1.GET("/admin/users", requireAdmin, s.adminUsers)
+	v1.PATCH("/admin/users/:id", requireAdmin, s.banUser)
+	v1.GET("/admin/audits", requireAdmin, s.adminAudits)
 	v1.POST("/auth/register", s.authRateLimit, s.register)
 	v1.POST("/auth/email-code", s.authRateLimit, s.sendRegistrationCode)
 	v1.GET("/auth/config", func(c *gin.Context) {
@@ -91,7 +96,8 @@ func (s *Server) Router() *gin.Engine {
 		v1.POST("/annotations", requireLogin, s.createAnnotation)
 		v1.POST("/annotations/:id/comments", requireLogin, s.createComment)
 		v1.GET("/annotations/:id/comments", s.listComments)
-		v1.POST("/annotations/:id/like", requireLogin, s.likeAnnotation)
+		v1.POST("/annotations/:id/like", requireLogin, s.setAnnotationLike)
+		v1.DELETE("/annotations/:id/like", requireLogin, s.setAnnotationLike)
 		v1.POST("/explanations", requireLogin, s.explain)
 		v1.POST("/feedback", requireLogin, s.createFeedback)
 		v1.POST("/speech/transcribe", requireLogin, s.transcribe)
@@ -308,8 +314,21 @@ func (s *Server) listAnnotations(c *gin.Context) {
 		return
 	}
 	result := make([]annotationResponse, 0, len(items))
+	votes := []model.AnnotationLike{}
+	if userID(c) != 0 {
+		if err := s.db.Where("user_id = ? AND annotation_id IN (?)", userID(c), s.db.Model(&model.Annotation{}).Select("id").Where("article_id = ?", articleID)).Find(&votes).Error; err != nil {
+			fail(c, err)
+			return
+		}
+	}
+	liked := map[uint]bool{}
+	for _, vote := range votes {
+		liked[vote.AnnotationID] = true
+	}
 	for _, item := range items {
-		result = append(result, toAnnotationResponse(item))
+		note := toAnnotationResponse(item)
+		note.Liked = liked[item.ID]
+		result = append(result, note)
 	}
 	c.JSON(http.StatusOK, result)
 }
@@ -361,8 +380,7 @@ func (s *Server) createAnnotation(c *gin.Context) {
 	if isAdmin(c) {
 		item.Status = "visible"
 	}
-	if err := s.db.Create(&item).Error; err != nil {
-		fail(c, err)
+	if !s.createCommunity(c, &item, submissionKey("annotation", item.ArticleID, item.Quote+"\n"+item.Body)) {
 		return
 	}
 	_ = s.db.Preload("User").First(&item, item.ID).Error
@@ -396,32 +414,11 @@ func (s *Server) createComment(c *gin.Context) {
 			return
 		}
 	}
-	if err := s.db.Create(&item).Error; err != nil {
-		fail(c, err)
+	if !s.createCommunity(c, &item, submissionKey("reply", item.AnnotationID, item.Body)) {
 		return
 	}
 	_ = s.db.Preload("User").First(&item, item.ID).Error
 	c.JSON(http.StatusCreated, toCommentResponse(item))
-}
-
-func (s *Server) likeAnnotation(c *gin.Context) {
-	annotationID, ok := parseID(c.Param("id"))
-	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "批注编号不正确"})
-		return
-	}
-	result := s.db.Model(&model.Annotation{}).Where("id = ? AND status = ? AND article_id IN (?)", annotationID, "visible", s.publicArticleIDs()).UpdateColumn("likes", gorm.Expr("likes + 1"))
-	if result.Error != nil {
-		fail(c, result.Error)
-		return
-	}
-	if result.RowsAffected == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "批注不存在"})
-		return
-	}
-	var item model.Annotation
-	_ = s.db.First(&item, annotationID).Error
-	c.JSON(http.StatusOK, gin.H{"id": annotationID, "likes": item.Likes})
 }
 
 func (s *Server) explain(c *gin.Context) {

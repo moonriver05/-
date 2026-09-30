@@ -429,10 +429,11 @@ async function likeNote(note: Annotation) {
   if (likesBusy.value.includes(note.id) || !requireOnline()) return
   likesBusy.value.push(note.id)
   const previous = note.likes
-  note.likes += 1
+  note.likes = Math.max(0, note.likes + (note.liked ? -1 : 1))
   try {
-    const result = await api.likeAnnotation(note.id)
+    const result = await api.likeAnnotation(note.id, !note.liked)
     note.likes = result.likes
+    note.liked = result.liked
   } catch {
     note.likes = previous
     showToast('点赞失败，请稍后重试')
@@ -840,7 +841,7 @@ onUnmounted(() => {
             <div v-if="note.status && note.status !== 'visible'" class="note-status">{{ note.status === 'pending' ? '待审核 · 仅作者和管理员可见' : '已驳回 · 仅作者和管理员可见' }}</div>
             <button v-if="canDelete(note.userId)" class="text-btn danger" @click="deleteNote(note)">删除批注</button>
             <p class="note-body">{{ note.body }}</p>
-            <div v-if="!note.status || note.status === 'visible'" class="note-actions"><button aria-label="点赞批注" :disabled="likesBusy.includes(note.id)" @click="likeNote(note)" v-html="icon('heart', 14) + ` ${note.likes}`" /><button :aria-expanded="expandedNotes.includes(note.id)" @click="openReplies(note)" v-html="icon('comment', 14) + ` ${note.replies} 条回复`" /><button @click="openReplies(note)">{{ expandedNotes.includes(note.id) ? '收起' : '回复' }}</button></div>
+            <div v-if="!note.status || note.status === 'visible'" class="note-actions"><button :aria-label="note.liked ? '取消点赞' : '点赞批注'" :aria-pressed="!!note.liked" :class="{ 'is-liked': note.liked }" :disabled="likesBusy.includes(note.id)" @click="likeNote(note)" v-html="icon('heart', 14) + ` ${note.likes}`" /><button :aria-expanded="expandedNotes.includes(note.id)" @click="openReplies(note)" v-html="icon('comment', 14) + ` ${note.replies} 条回复`" /><button @click="openReplies(note)">{{ expandedNotes.includes(note.id) ? '收起' : '回复' }}</button></div>
             <div v-if="expandedNotes.includes(note.id)" class="reply-thread">
               <p v-if="replyBusy.includes(note.id)" role="status">正在处理回复…</p>
               <p v-if="replyErrors[note.id]" class="inline-error" role="alert">{{ replyErrors[note.id] }}</p>

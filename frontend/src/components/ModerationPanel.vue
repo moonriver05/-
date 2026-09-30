@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { api } from '../api'
 import UserAvatar from './UserAvatar.vue'
 import WikiContent from './WikiContent.vue'
+import AccountManagement from './AccountManagement.vue'
 import { articleReviewLabel, feedbackKindLabel, feedbackStatusLabel, type ModerationSection } from '../moderation'
 import type { Annotation, Article, FeedbackItem } from '../types'
 const props = withDefaults(defineProps<{ initialSection?: ModerationSection; initialStatus?: string; initialQuery?: string }>(), { initialSection: 'articles', initialStatus: 'pending', initialQuery: '' })
@@ -12,6 +13,7 @@ const notes = ref<Annotation[]>([]), articles = ref<Article[]>([]), feedback = r
 const total = ref(0), page = ref(1), busy = ref(false), previewBusy = ref(false), error = ref('')
 const resolutions = ref<Record<number, string>>({}), preview = ref<Article | null>(null)
 const panel = ref<HTMLElement | null>(null), previewElement = ref<HTMLElement | null>(null)
+const managementMode = ref<'content' | 'users' | 'audits'>('content')
 let generation = 0, disposed = false
 onMounted(() => { panel.value?.focus(); void load() })
 onUnmounted(() => { generation++; disposed = true })
@@ -39,7 +41,7 @@ async function load() {
   } catch (e) { if (version === generation) error.value = e instanceof Error ? e.message : '加载失败' }
   finally { if (version === generation) busy.value = false }
 }
-function switchSection(next: ModerationSection) { section.value = next; status.value = 'pending'; page.value = 1; query.value = ''; void load() }
+function switchSection(next: ModerationSection) { managementMode.value = 'content'; section.value = next; status.value = 'pending'; page.value = 1; query.value = ''; void load() }
 function switchStatus(next: string) { status.value = next; page.value = 1; void load() }
 async function run(action: () => Promise<unknown>) {
   if (busy.value || previewBusy.value) return
@@ -68,7 +70,10 @@ async function showPreview(id: number) {
   <div class="moderation-overlay" @keydown.esc="close">
     <section ref="panel" class="moderation-panel content-management" role="dialog" aria-modal="true" aria-labelledby="moderation-title" tabindex="-1" @keydown="trapFocus">
       <div class="community-heading"><h2 id="moderation-title">审核管理</h2><button class="text-btn" :disabled="busy || previewBusy" @click="close">关闭</button></div>
-      <div class="management-sections" aria-label="审核分类"><button v-for="tab in [{ key: 'articles', name: '条目审核' }, { key: 'annotations', name: '批注审核' }, { key: 'feedback', name: '纠错反馈' }]" :key="tab.key" :aria-pressed="section === tab.key" :class="{ active: section === tab.key }" :disabled="busy || previewBusy" @click="switchSection(tab.key as ModerationSection)">{{ tab.name }}</button></div>
+      <div class="management-sections" aria-label="审核分类"><button v-for="tab in [{ key: 'articles', name: '条目审核' }, { key: 'annotations', name: '批注审核' }, { key: 'feedback', name: '纠错反馈' }]" :key="tab.key" :aria-pressed="managementMode === 'content' && section === tab.key" :class="{ active: managementMode === 'content' && section === tab.key }" :disabled="busy || previewBusy" @click="switchSection(tab.key as ModerationSection)">{{ tab.name }}</button></div>
+      <div class="management-sections" aria-label="账户管理分类"><button :class="{ active: managementMode === 'users' }" :aria-pressed="managementMode === 'users'" :disabled="busy || previewBusy" @click="managementMode = 'users'">用户管理</button><button :class="{ active: managementMode === 'audits' }" :aria-pressed="managementMode === 'audits'" :disabled="busy || previewBusy" @click="managementMode = 'audits'">操作日志</button></div>
+      <AccountManagement v-if="managementMode !== 'content'" :key="managementMode" :mode="managementMode" />
+      <template v-else>
       <p class="muted management-description">{{ section === 'articles' ? '新建条目通过后公开。导入内容可继续阅读，人工核验后再标记通过。删除可在回收站恢复。' : section === 'annotations' ? '批注通过后公开显示。删除会同时隐藏该批注下的回复。' : '查看用户的补充、纠错与解释反馈。处理说明会显示给提交者；标记已处理不会自动修改正文。' }}</p>
       <form v-if="section === 'articles'" class="management-search" @submit.prevent="page = 1; load()"><input v-model="query" aria-label="搜索审核条目标题" placeholder="按条目标题搜索" :disabled="busy || previewBusy" /><button class="text-btn" :disabled="busy || previewBusy">搜索</button></form>
       <div class="moderation-tabs"><button v-for="tab in tabs" :key="tab[0]" :class="{ active: status === tab[0] }" :disabled="busy || previewBusy" @click="switchStatus(tab[0])">{{ tab[1] }}</button><span>{{ total }} 条</span></div>
@@ -94,6 +99,7 @@ async function showPreview(id: number) {
       </template>
       <div class="community-form-footer"><button class="text-btn" :disabled="page <= 1 || busy || previewBusy" @click="page--; load()">上一页</button><span>{{ page }} / {{ Math.max(1, Math.ceil(total / 50)) }}</span><button class="text-btn" :disabled="page * 50 >= total || busy || previewBusy" @click="page++; load()">下一页</button></div>
       <section v-if="preview" ref="previewElement" class="management-preview" tabindex="-1" aria-label="条目正文预览"><div class="community-heading"><h2>{{ preview.title }}</h2><button class="text-btn" @click="preview = null">收起正文</button></div><p class="muted">{{ articleReviewLabel(preview.reviewStatus) }}</p><div v-for="part in preview.sections" :key="part.id"><h3>{{ part.title }}</h3><WikiContent v-if="part.contentHtml" :html="part.contentHtml" /><p v-else class="plain-section">{{ part.content }}</p><pre v-if="part.formula">{{ part.formula }}</pre></div></section>
+      </template>
     </section>
   </div>
 </template>

@@ -38,6 +38,12 @@ func (s *SMTP) Configured() bool {
 	return err == nil && from.Address == s.From && !strings.ContainsAny(s.From, "\r\n") && e == nil && port > 0 && port <= 65535 && s.Host != "" && s.Username != "" && s.Password != "" && (s.TLSMode == "tls" || s.TLSMode == "starttls")
 }
 func (s *SMTP) SendCode(ctx context.Context, email, code string) error {
+	return s.sendCode(ctx, email, code, false)
+}
+func (s *SMTP) SendResetCode(ctx context.Context, email, code string) error {
+	return s.sendCode(ctx, email, code, true)
+}
+func (s *SMTP) sendCode(ctx context.Context, email, code string, reset bool) error {
 	if !s.Configured() {
 		return errors.New("SMTP is not configured")
 	}
@@ -97,6 +103,10 @@ func (s *SMTP) SendCode(ctx context.Context, email, code string) error {
 		return err
 	}
 	message := fmt.Sprintf("From: MathWiki LAB <%s>\r\nTo: %s\r\nSubject: MathWiki registration verification code\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: 8bit\r\nDate: %s\r\n\r\n你的 MathWiki 注册验证码是：%s\r\n\r\n验证码 10 分钟内有效，仅用于注册，请勿转发给他人。\r\n如果不是你本人操作，请忽略此邮件。\r\n", s.From, email, time.Now().Format(time.RFC1123Z), code)
+	if reset {
+		message = strings.ReplaceAll(message, "registration verification", "password reset")
+		message = strings.ReplaceAll(message, "注册", "重置密码")
+	}
 	if _, err = writer.Write([]byte(message)); err != nil {
 		return err
 	}

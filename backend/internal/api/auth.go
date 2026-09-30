@@ -17,6 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"mathwiki/internal/model"
 )
 
@@ -70,7 +71,9 @@ func (s *Server) authenticate(c *gin.Context) {
 				c.AbortWithStatusJSON(503, gin.H{"error": "账户服务暂时不可用"})
 				return
 			}
-			c.Set("user", u)
+			if !u.Banned {
+				c.Set("user", u)
+			}
 		}
 	}
 	c.Next()
@@ -115,7 +118,20 @@ func (s *Server) setSession(c *gin.Context, u model.User) {
 	}
 	token := hex.EncodeToString(raw)
 	session := model.Session{ID: tokenHash(token), UserID: u.ID, ExpiresAt: time.Now().Add(7 * 24 * time.Hour)}
-	if err := s.db.Create(&session).Error; err != nil {
+	if err := s.db.Transaction(func(tx *gorm.DB) error {
+		var fresh model.User
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&fresh, u.ID).Error; err != nil {
+			return err
+		}
+		if fresh.Banned || fresh.PasswordHash != u.PasswordHash {
+			return errAccountUnavailable
+		}
+		return tx.Create(&session).Error
+	}); err != nil {
+		if errors.Is(err, errAccountUnavailable) {
+			c.JSON(401, gin.H{"error": "账户已变更，请重新登录"})
+			return
+		}
 		fail(c, err)
 		return
 	}
@@ -192,7 +208,7 @@ func (s *Server) login(c *gin.Context) {
 		hash = dummyHash
 	}
 	valid := bcrypt.CompareHashAndPassword(hash, []byte(input.Password)) == nil
-	if err != nil || u.PasswordHash == "" || !valid {
+	if err != nil || u.PasswordHash == "" || !valid || u.Banned {
 		c.JSON(401, gin.H{"error": "账号或密码不正确"})
 		return
 	}

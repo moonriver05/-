@@ -165,8 +165,7 @@ func (s *Server) createArticleComment(c *gin.Context) {
 		return
 	}
 	item := model.ArticleComment{ArticleID: id, UserID: userID(c), Body: input.Body}
-	if err := s.db.Create(&item).Error; err != nil {
-		fail(c, err)
+	if !s.createCommunity(c, &item, submissionKey("article-comment", id, item.Body)) {
 		return
 	}
 	item.User = currentUser(c)

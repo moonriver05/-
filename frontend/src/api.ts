@@ -70,6 +70,11 @@ async function transcribeAudio(audio: Blob): Promise<{ text: string; provider: s
 }
 
 export const api = {
+  adminUsers: (page = 1, q = '') => request<{ items: User[]; total: number }>(`/admin/users?${new URLSearchParams({ page: String(page), q })}`),
+  banUser: (id: number, banned: boolean, reason: string) => request(`/admin/users/${id}`, { method: 'PATCH', body: JSON.stringify({ banned, reason }) }),
+  adminAudits: (page = 1) => request<{ items: { id: number; userId: number; action: string; target: string; reason: string; status: number; createdAt: string }[]; total: number }>(`/admin/audits?page=${page}`),
+  sendResetCode: (email: string) => request<{ message: string; retryAfter: number; expiresIn: number }>('/auth/reset-code', { method: 'POST', body: JSON.stringify({ email }) }, 20000),
+  resetPassword: (email: string, code: string, password: string) => request<{ message: string }>('/auth/reset-password', { method: 'POST', body: JSON.stringify({ email, code, password }) }),
   adminArticles: (status: string, page = 1, q = '') => request<{ items: Article[]; total: number }>(`/admin/articles?${new URLSearchParams({ status, page: String(page), q })}`),
   adminArticle: (id: number) => request<Article>(`/admin/articles/${id}`),
   reviewArticle: (article: Article, status: 'approved' | 'rejected') => request(`/admin/articles/${article.id}`, { method: 'PATCH', body: JSON.stringify({ status, expectedStatus: article.reviewStatus }) }),
@@ -113,7 +118,7 @@ export const api = {
   getAnnotations: (articleId: number) => request<Annotation[]>(`/articles/${articleId}/annotations`),
   createAnnotation: (input: AnnotationInput) => request<Annotation>('/annotations', { method: 'POST', body: JSON.stringify(input) }),
   setFavorite: (articleId: number, saved: boolean) => request<{ articleId: number; saved: boolean }>(`/articles/${articleId}/favorite`, { method: 'PUT', body: JSON.stringify({ saved }) }),
-  likeAnnotation: (annotationId: number) => request<{ id: number; likes: number }>(`/annotations/${annotationId}/like`, { method: 'POST', body: '{}' }),
+  likeAnnotation: (annotationId: number, liked = true) => request<{ id: number; likes: number; liked: boolean }>(`/annotations/${annotationId}/like`, { method: liked ? 'POST' : 'DELETE', body: '{}' }),
   explain: (input: ExplainInput) => request<Explanation>('/explanations', { method: 'POST', body: JSON.stringify(input) }, 190_000),
   feedback: (articleId: number, kind: string, body = '') => request('/feedback', { method: 'POST', body: JSON.stringify({ articleId, kind, body }) }),
   transcribe: transcribeAudio
