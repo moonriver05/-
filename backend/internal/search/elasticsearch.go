@@ -65,17 +65,13 @@ func (c *Client) Search(ctx context.Context, query string, limit int) ([]Hit, er
 	return result, nil
 }
 
-// Fixed, non-additive tiers guarantee that body term frequency cannot outrank
-// a title match. A larger BM25 title boost alone cannot provide that guarantee.
+// Match only literal titles: exact, prefix, then substring.
 func titleFirstQuery(query string, limit int) map[string]any {
 	tier := func(filter map[string]any, score int) map[string]any {
 		return map[string]any{"constant_score": map[string]any{"filter": filter, "boost": score}}
 	}
 	keyword := func(kind, value string) map[string]any {
-		return map[string]any{kind: map[string]any{"title.keyword": map[string]any{"value": value, "case_insensitive": true}}}
-	}
-	match := func(fields []string) map[string]any {
-		return map[string]any{"multi_match": map[string]any{"query": query, "fields": fields, "type": "best_fields", "operator": "and"}}
+		return map[string]any{kind: map[string]any{"title": map[string]any{"value": value, "case_insensitive": true}}}
 	}
 	wildcard := "*" + strings.NewReplacer(`\`, `\\`, "*", `\*`, "?", `\?`).Replace(query) + "*"
 	return map[string]any{
@@ -86,9 +82,6 @@ func titleFirstQuery(query string, limit int) map[string]any {
 				tier(keyword("term", query), 500),
 				tier(keyword("prefix", query), 400),
 				tier(keyword("wildcard", wildcard), 350),
-				tier(match([]string{"title"}), 300),
-				tier(match([]string{"lead", "tags"}), 200),
-				tier(match([]string{"sections.title", "sections.content"}), 100),
 			}}},
 		}},
 		"sort": []any{map[string]any{"_score": "desc"}, map[string]any{"updatedAt": "desc"}, map[string]any{"pageId": "asc"}},

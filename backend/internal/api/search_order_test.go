@@ -83,16 +83,16 @@ func TestSearchTitlePriorityBeforePagination(t *testing.T) {
 	q := url.QueryEscape("梯度下降")
 	for _, path := range []string{"/articles?format=page&q=" + q + "&limit=2", "/articles?format=page&sort=relevance&q=" + q + "&limit=2", "/search?q=" + q + "&limit=2"} {
 		items, _ := get(path)
-		if len(items) != 2 || items[0].ID != exact.ID || items[1].Title != "原名命中" {
+		if len(items) != 2 || items[0].ID != exact.ID || items[1].Title != "梯度下降法" {
 			t.Fatalf("title priority lost: %s / %+v", path, items)
 		}
 	}
 	items, total := get("/articles?format=page&q=" + q + "&limit=2&page=2")
-	if total != 66 || len(items) != 2 || items[0].Title != "梯度下降法" || items[1].Title != "随机梯度下降" {
+	if total != 3 || len(items) != 1 || items[0].Title != "随机梯度下降" {
 		t.Fatalf("pagination/count incorrect: %d %+v", total, items)
 	}
 	items, _ = get("/articles?format=page&q=" + q + "&limit=100")
-	want := []string{"梯度下降", "原名命中", "梯度下降法", "随机梯度下降", "摘要命中", "标签命中", "正文命中-00"}
+	want := []string{"梯度下降", "梯度下降法", "随机梯度下降"}
 	for i, title := range want {
 		if items[i].Title != title {
 			t.Fatalf("rank %d got %s want %s", i, items[i].Title, title)
@@ -125,7 +125,7 @@ func TestSearchTitlePriorityBeforePagination(t *testing.T) {
 		t.Fatal("empty search changed default update order")
 	}
 	items, _ = get("/articles?format=page&q=" + q + "&sort=updated&limit=1")
-	if items[0].Title != "正文命中-00" {
+	if items[0].Title != "随机梯度下降" {
 		t.Fatal("explicit date sort ignored")
 	}
 }

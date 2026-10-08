@@ -17,6 +17,9 @@ func TestTitleFirstQuery(t *testing.T) {
 		t.Fatal("tiers must not add scores")
 	}
 	tiers := dismax["queries"].([]any)
+	if len(tiers) != 3 {
+		t.Fatal("only title tiers are allowed")
+	}
 	previous := 1000
 	for _, item := range tiers {
 		tier := item.(map[string]any)["constant_score"].(map[string]any)
@@ -27,7 +30,7 @@ func TestTitleFirstQuery(t *testing.T) {
 		previous = score
 	}
 	filter := tiers[2].(map[string]any)["constant_score"].(map[string]any)["filter"].(map[string]any)
-	value := filter["wildcard"].(map[string]any)["title.keyword"].(map[string]any)["value"]
+	value := filter["wildcard"].(map[string]any)["title"].(map[string]any)["value"]
 	if value != `*A\*B\?C\\D*` {
 		t.Fatalf("wildcard not escaped: %v", value)
 	}

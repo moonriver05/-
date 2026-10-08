@@ -107,8 +107,13 @@ func buildSources(sections []model.Section) string {
 func (e *Explainer) complete(ctx context.Context, system, prompt string) (string, error) {
 	payload := map[string]any{
 		"model": e.model, "temperature": 0.2,
+		"max_tokens":      4096,
 		"response_format": map[string]string{"type": "json_object"},
 		"messages":        []map[string]string{{"role": "system", "content": system}, {"role": "user", "content": prompt}},
+	}
+	// DeepSeek defaults to thinking mode; keep the two-pass explanation responsive.
+	if strings.HasPrefix(e.model, "deepseek-") {
+		payload["thinking"] = map[string]string{"type": "disabled"}
 	}
 	data, _ := json.Marshal(payload)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.baseURL+"/chat/completions", bytes.NewReader(data))
@@ -128,7 +133,8 @@ func (e *Explainer) complete(ctx context.Context, system, prompt string) (string
 	}
 	var response struct {
 		Choices []struct {
-			Message struct {
+			FinishReason string `json:"finish_reason"`
+			Message      struct {
 				Content string `json:"content"`
 			} `json:"message"`
 		} `json:"choices"`
@@ -136,8 +142,11 @@ func (e *Explainer) complete(ctx context.Context, system, prompt string) (string
 	if err := json.NewDecoder(res.Body).Decode(&response); err != nil {
 		return "", err
 	}
-	if len(response.Choices) == 0 {
+	if len(response.Choices) == 0 || strings.TrimSpace(response.Choices[0].Message.Content) == "" {
 		return "", errors.New("LLM 未返回内容")
+	}
+	if response.Choices[0].FinishReason == "length" {
+		return "", errors.New("模型输出达到长度限制，请缩小问题范围后重试")
 	}
 	return response.Choices[0].Message.Content, nil
 }

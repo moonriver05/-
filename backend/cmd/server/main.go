@@ -40,7 +40,13 @@ func main() {
 		sqlDB.SetMaxOpenConns(50)
 		sqlDB.SetConnMaxLifetime(30 * time.Minute)
 	}
-	server := api.New(db, search.New(cfg.ElasticsearchURL, cfg.ElasticsearchIndex), ai.New(cfg.LLMBaseURL, cfg.LLMAPIKey, cfg.LLMModel), cfg.STTProvider)
+	var searchClient *search.Client
+	if cfg.ElasticsearchEnabled {
+		searchClient = search.New(cfg.ElasticsearchURL, cfg.ElasticsearchIndex)
+	} else {
+		log.Print("Elasticsearch disabled; using database title search")
+	}
+	server := api.New(db, searchClient, ai.New(cfg.LLMBaseURL, cfg.LLMAPIKey, cfg.LLMModel), cfg.STTProvider)
 	log.Printf("MathWiki 中文 API 已启动: http://localhost:%s", cfg.Port)
 	if err := server.Router().Run(":" + cfg.Port); err != nil {
 		log.Fatal(err)

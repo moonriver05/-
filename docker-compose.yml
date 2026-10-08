@@ -20,11 +20,12 @@ services:
       COS_SESSION_TOKEN: ${COS_SESSION_TOKEN:-}
       DATABASE_DRIVER: mysql
       MYSQL_DSN: mathwiki:mathwiki@tcp(mysql:3306)/mathwiki?charset=utf8mb4&parseTime=True&loc=Local
+      ELASTICSEARCH_ENABLED: ${ELASTICSEARCH_ENABLED:-false}
       ELASTICSEARCH_URL: http://elasticsearch:9200
       ELASTICSEARCH_INDEX: mathwiki_articles
       LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
       LLM_API_KEY: ${LLM_API_KEY:-}
-      LLM_MODEL: ${LLM_MODEL:-deepseek-chat}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-flash}
       STT_PROVIDER: ${STT_PROVIDER:-mock}
       DEMO_SEED: ${DEMO_SEED:-true}
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}

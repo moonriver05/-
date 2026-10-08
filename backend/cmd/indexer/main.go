@@ -20,19 +20,10 @@ import (
 )
 
 type document struct {
-	PageID     int64     `json:"pageId"`
-	Title      string    `json:"title"`
-	Lead       string    `json:"lead"`
-	Category   string    `json:"category"`
-	Tags       []string  `json:"tags"`
-	Difficulty string    `json:"difficulty"`
-	Language   string    `json:"language"`
-	UpdatedAt  time.Time `json:"updatedAt"`
-	Sections   []section `json:"sections"`
-}
-type section struct {
-	Title   string `json:"title"`
-	Content string `json:"content"`
+	PageID    int64     `json:"pageId"`
+	Title     string    `json:"title"`
+	Language  string    `json:"language"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 func main() {
@@ -48,7 +39,7 @@ func main() {
 	var offset int
 	for {
 		var articles []model.Article
-		if err := db.Preload("Sections", func(tx *gorm.DB) *gorm.DB { return tx.Order("position ASC") }).Where("published = ? AND language = ?", true, "zh-Hans").Order("id").Limit(200).Offset(offset).Find(&articles).Error; err != nil {
+		if err := db.Select("id", "page_id", "title", "language", "updated_at").Where("published = ? AND language = ?", true, "zh-Hans").Order("id").Limit(200).Offset(offset).Find(&articles).Error; err != nil {
 			log.Fatal(err)
 		}
 		if len(articles) == 0 {
@@ -91,12 +82,7 @@ func bulk(client *http.Client, cfg config.Config, articles []model.Article) erro
 	encoder := json.NewEncoder(&buffer)
 	encoder.SetEscapeHTML(false)
 	for _, article := range articles {
-		var tags []string
-		_ = json.Unmarshal([]byte(article.Tags), &tags)
-		doc := document{PageID: article.PageID, Title: article.Title, Lead: article.Lead, Category: article.Category, Tags: tags, Difficulty: article.Difficulty, Language: article.Language, UpdatedAt: article.UpdatedAt}
-		for _, item := range article.Sections {
-			doc.Sections = append(doc.Sections, section{Title: item.Title, Content: item.Content})
-		}
+		doc := document{PageID: article.PageID, Title: article.Title, Language: article.Language, UpdatedAt: article.UpdatedAt}
 		_ = encoder.Encode(map[string]any{"index": map[string]any{"_index": cfg.ElasticsearchIndex, "_id": article.PageID}})
 		_ = encoder.Encode(doc)
 	}
