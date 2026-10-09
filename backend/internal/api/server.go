@@ -99,6 +99,7 @@ func (s *Server) Router() *gin.Engine {
 		v1.POST("/annotations/:id/like", requireLogin, s.setAnnotationLike)
 		v1.DELETE("/annotations/:id/like", requireLogin, s.setAnnotationLike)
 		v1.POST("/explanations", requireLogin, s.explain)
+		v1.POST("/explanations/stream", requireLogin, s.explainStream)
 		v1.POST("/feedback", requireLogin, s.createFeedback)
 		v1.POST("/speech/transcribe", requireLogin, s.transcribe)
 	}

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { api } from './api'
+import { conversationHistory, type ConversationTurn } from './explanationStream'
 import WikiContent from './components/WikiContent.vue'
 import AuthPage from './components/AuthPage.vue'
 import ArticleComments from './components/ArticleComments.vue'
@@ -12,7 +13,7 @@ import ProfilePage from './components/ProfilePage.vue'
 import UserAvatar from './components/UserAvatar.vue'
 import type { User } from './types'
 import { articles as mockArticles, seedAnnotations } from './mock'
-import type { Annotation, Article, Explanation, Stats, Category, Comment, Capabilities } from './types'
+import type { Annotation, Article, Stats, Category, Comment, Capabilities } from './types'
 
 type PanelTab = 'ai' | 'notes' | 'info'
 type Toast = { text: string; action?: string }
@@ -27,9 +28,25 @@ const sidebarOpen = ref(false)
 const level = ref('本科生')
 const explainStyle = ref('直觉 + 严谨')
 const explainPrompt = ref('为什么边权不能是负数？')
-const explanation = ref<Explanation | null>(null)
 const explaining = ref(false)
 const verificationStage = ref(0)
+const conversation = ref<ConversationTurn[]>([])
+let explainController: AbortController | null = null
+
+function clearConversation() {
+  explainController?.abort()
+  explainController = null
+  explaining.value = false
+  conversation.value = []
+}
+
+function stopExplanation() { explainController?.abort() }
+
+function followConversation(force = false) {
+  const panel = document.querySelector<HTMLElement>('.ai-panel')
+  if (!panel || (!force && panel.scrollHeight - panel.scrollTop - panel.clientHeight > 180)) return
+  nextTick(() => { if (panel.isConnected) panel.scrollTop = panel.scrollHeight })
+}
 const annotations = ref<Annotation[]>([...seedAnnotations])
 const selectedQuote = ref('')
 const selectionPos = ref({ x: 0, y: 0 })
@@ -57,7 +74,6 @@ const capabilities = ref<Capabilities>({ aiConfigured: false, speechConfigured: 
 const loadingList = ref(false)
 const listError = ref('')
 const detailError = ref('')
-const explanationError = ref('')
 const totalArticles = ref(0)
 const page = ref(1)
 const menu = ref<'library' | 'article' | null>(null)
@@ -103,7 +119,7 @@ async function removeActiveArticle() {
   const article = activeArticle.value
   if (!window.confirm(`将「${article.title}」移入回收站？正文和关联讨论将隐藏，可在审核管理中恢复。`)) return
   articleDeleteBusy.value = true; menu.value = null
-  try { await api.deleteArticle(article.id); annotations.value = []; commentLists.value = {}; explanation.value = null; await moderationChanged('articles'); showToast('条目已移入回收站，可在审核管理中恢复') }
+  try { await api.deleteArticle(article.id); annotations.value = []; commentLists.value = {}; clearConversation(); await moderationChanged('articles'); showToast('条目已移入回收站，可在审核管理中恢复') }
   catch (e) { showToast(e instanceof Error ? e.message : '删除失败') }
   finally { articleDeleteBusy.value = false }
 }
@@ -116,6 +132,7 @@ function profileUpdated(nextUser: User) {
 const accountBusy = ref(false)
 function requestLogin() { authOpen.value = true }
 function sessionExpired() {
+  clearConversation()
   feedbackOpen.value = false
   profileOpen.value = false
   user.value = null; stats.value = null; annotations.value = []; commentLists.value = {}; replyDrafts.value = {}
@@ -125,11 +142,12 @@ function sessionExpired() {
 function requireAccount() { if (user.value) return true; requestLogin(); return false }
 function canDelete(owner?: number) { return !!user.value && (user.value.role === 'admin' || user.value.id === owner) }
 async function accountChanged(nextUser: User | null) {
+  clearConversation()
   feedbackOpen.value = false
   profileOpen.value = false
   user.value = nextUser; authOpen.value = false; moderationOpen.value = false
   ++articleRequest; ++listRequest
-  annotations.value = []; commentLists.value = {}; replyDrafts.value = {}; annotationText.value = ''; explanation.value = null
+  annotations.value = []; commentLists.value = {}; replyDrafts.value = {}; annotationText.value = ''
   activeCollection.value = '全部条目'
   await loadBackendContent()
 }
@@ -222,10 +240,9 @@ function icon(name: string, size = 18) {
 let articleRequest = 0
 
 async function selectArticle(article: Article) {
+  clearConversation()
   const requestId = ++articleRequest
   activeArticle.value = article
-  explanation.value = null
-  explanationError.value = ''
   detailError.value = ''
   annotations.value = []
   noteFilter.value = ''
@@ -362,21 +379,32 @@ async function runExplain() {
   if (explaining.value || !explainPrompt.value.trim()) return
   if (!requireOnline()) return
   const requestedArticle = activeArticle.value.id
+  const question = explainPrompt.value.trim()
+  const history = conversationHistory(conversation.value)
+  const controller = new AbortController()
+  explainController = controller
+  const index = conversation.value.length
+  conversation.value.push({ question, text: '' })
+  const turn = conversation.value[index]!
+  explainPrompt.value = ''
+  followConversation(true)
   explaining.value = true
-  explanation.value = null
-  explanationError.value = ''
   verificationStage.value = 1
-  const timer1 = window.setTimeout(() => verificationStage.value = 2, 450)
-  const timer2 = window.setTimeout(() => verificationStage.value = 3, 900)
   try {
-    const result = await api.explain({ articleId: requestedArticle, question: explainPrompt.value, audience: level.value, style: explainStyle.value })
-    if (activeArticle.value.id === requestedArticle) explanation.value = result
+    await api.streamExplanation({ articleId: requestedArticle, question, audience: level.value, style: explainStyle.value, history }, event => {
+      if (explainController !== controller || activeArticle.value.id !== requestedArticle) return
+      if (event.type === 'delta') turn.text += event.text || ''
+      if (event.type === 'phase') verificationStage.value = event.text === 'verifying' ? 3 : 2
+      if (event.type === 'done') turn.result = event.explanation
+      followConversation()
+    }, controller.signal)
   } catch (error) {
-    if (activeArticle.value.id === requestedArticle) explanationError.value = error instanceof Error ? error.message : '解释生成失败，请重试'
+    if (explainController === controller) {
+      turn.error = controller.signal.aborted ? '已停止。以上内容尚未完成核验。' : error instanceof Error ? error.message : '解释生成失败，请重试'
+      if (!explainPrompt.value) explainPrompt.value = question
+    }
   } finally {
-    clearTimeout(timer1); clearTimeout(timer2)
-    verificationStage.value = 4
-    explaining.value = false
+    if (explainController === controller) { verificationStage.value = 4; explaining.value = false; explainController = null }
   }
 }
 
@@ -661,6 +689,7 @@ onMounted(async () => {
   await loadBackendContent()
 })
 onUnmounted(() => {
+  stopExplanation()
   window.removeEventListener('mathwiki:login-required', sessionExpired)
   window.removeEventListener('keydown', handleShortcut)
   window.clearTimeout(searchTimer)
@@ -805,26 +834,29 @@ onUnmounted(() => {
             <label><span>我的程度</span><select v-model="level"><option>小学生</option><option>高中生</option><option>本科生</option><option>专业学习者</option></select></label>
             <label><span>解释方式</span><select v-model="explainStyle"><option>直觉 + 严谨</option><option>生活类比</option><option>公式推导</option><option>例题演示</option></select></label>
           </div>
+          <div v-if="conversation.length" class="conversation-toolbar"><span>当前词条对话 · {{ conversation.length }} 轮</span><button class="text-btn" @click="clearConversation">开始新对话</button></div>
+          <div class="conversation-thread" aria-live="polite" aria-relevant="additions text">
+            <article v-for="(turn, turnIndex) in conversation" :key="turnIndex" class="conversation-turn">
+              <p class="user-question">{{ turn.question }}</p>
+              <div v-if="turn.result" class="answer-card">
+                <div class="answer-head"><span class="verified-badge">{{ turn.result.mode === 'demo' ? '引用示例 · 未调用模型' : '模型自检完成' }}</span></div>
+                <p class="answer-summary">{{ turn.result.summary }}</p>
+                <div class="answer-steps"><div v-for="(step, i) in turn.result.steps" :key="i"><b>{{ i + 1 }}</b><section><strong>{{ step.title }}</strong><p>{{ step.content }}</p></section></div></div>
+                <details><summary>依据与核验 <span>{{ turn.result.citations.length }} 条引用</span></summary><div class="citation" v-for="(cite, i) in turn.result.citations" :key="i"><span>{{ cite.section }}</span><p>“{{ cite.quote }}”</p></div></details>
+                <div class="answer-actions"><span>这条解释有帮助吗？</span><button @click="sendFeedback('helpful')">有帮助</button><button @click="sendFeedback('needs_improvement')">需改进</button></div>
+              </div>
+              <template v-else>
+                <p v-if="turn.text" class="stream-answer">{{ turn.text }}</p>
+                <p v-if="explaining && turnIndex === conversation.length - 1" class="stream-status" role="status">{{ verificationStage === 3 ? '正在核验引用与结论…' : turn.text ? '正在回答…' : '正在连接模型…' }}</p>
+                <p v-if="turn.error" class="inline-error" role="alert">{{ turn.error }}</p>
+              </template>
+            </article>
+          </div>
           <div class="prompt-box" :class="{ listening }">
-            <textarea v-model="explainPrompt" rows="3" placeholder="关于这个词条，你想理解什么？" @keydown.ctrl.enter="runExplain" />
-            <div><button class="mic-btn" :class="{ recording: listening }" title="语音输入" aria-label="语音输入" @click="toggleListening" v-html="icon('mic', 17)" /><span v-if="listening" class="listening-label">正在听…</span><span v-else>Ctrl + Enter 发送</span><button class="send-btn" aria-label="发送解释请求" :disabled="!explainPrompt.trim() || explaining" @click="runExplain" v-html="icon('send', 16)" /></div>
+            <textarea v-model="explainPrompt" rows="3" :placeholder="conversation.length ? '继续追问，例如：第二步能举个例子吗？' : '关于这个词条，你想理解什么？'" @keydown.ctrl.enter="runExplain" />
+            <div><button class="mic-btn" :class="{ recording: listening }" title="语音输入" aria-label="语音输入" @click="toggleListening" v-html="icon('mic', 17)" /><span v-if="listening" class="listening-label">正在听…</span><span v-else>Ctrl + Enter 发送</span><button v-if="explaining" class="text-btn" @click="stopExplanation">停止生成</button><button v-else class="send-btn" aria-label="发送解释请求" :disabled="!explainPrompt.trim()" @click="runExplain" v-html="icon('send', 16)" /></div>
           </div>
-
-          <div v-if="explaining" class="verification-progress">
-            <div class="thinking-lines"><i /><i /><i /></div>
-            <strong>正在生成并验证解释</strong>
-            <ol><li :class="{ done: verificationStage > 1 }">检索当前词条证据</li><li :class="{ done: verificationStage > 2 }">生成分层解释</li><li :class="{ done: verificationStage > 3 }">核对公式与关键结论</li></ol>
-          </div>
-
-          <div v-else-if="explanationError" class="inline-error" role="alert">{{ explanationError }}<button @click="runExplain">重新请求</button></div>
-          <div v-else-if="explanation" class="answer-card">
-            <div class="answer-head"><span class="verified-badge">{{ explanation.mode === 'demo' ? '引用示例 · 未调用模型' : '模型自检完成' }}</span><span v-if="explanation.mode !== 'demo'">模型自评 {{ Math.round(explanation.confidence * 100) }}%</span></div>
-            <p class="answer-summary">{{ explanation.summary }}</p>
-            <div class="answer-steps"><div v-for="(step, i) in explanation.steps" :key="step.title"><b>{{ i + 1 }}</b><section><strong>{{ step.title }}</strong><p>{{ step.content }}</p></section></div></div>
-            <details open><summary>依据与核验 <span>{{ explanation.citations.length }} 条引用</span></summary><div class="citation" v-for="cite in explanation.citations" :key="cite.section"><span>{{ cite.section }}</span><p>“{{ cite.quote }}”</p></div></details>
-            <div class="answer-actions"><span>这条解释有帮助吗？</span><button @click="sendFeedback('helpful')">有帮助</button><button @click="sendFeedback('needs_improvement')">需改进</button></div>
-          </div>
-          <div v-else class="suggestion-area"><span>可以这样问</span><button @click="explainPrompt = '用一个生活中的例子解释这个算法'; runExplain()">用生活例子解释</button><button @click="explainPrompt = '一步步展示算法如何运行'; runExplain()">一步步演示</button><button @click="explainPrompt = '这个算法最容易误解的地方是什么？'; runExplain()">指出常见误区</button></div>
+          <div v-if="!conversation.length" class="suggestion-area"><span>可以这样问</span><button @click="explainPrompt = '用一个生活中的例子解释这个算法'; runExplain()">用生活例子解释</button><button @click="explainPrompt = '一步步展示算法如何运行'; runExplain()">一步步演示</button><button @click="explainPrompt = '这个算法最容易误解的地方是什么？'; runExplain()">指出常见误区</button></div>
         </div>
 
         <div v-else-if="panelTab === 'notes'" class="insight-content notes-panel">

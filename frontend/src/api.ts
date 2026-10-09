@@ -1,4 +1,5 @@
 import type { Annotation, Article, Explanation, Stats, Category, Comment, Capabilities, ArticleInput, User, FeedbackItem } from './types'
+import { readExplanationStream, type StreamEvent } from './explanationStream.ts'
 
 type AnnotationInput = {
   articleId: number
@@ -13,6 +14,34 @@ type ExplainInput = {
   question: string
   audience: string
   style: string
+  history?: { role: string; content: string }[]
+}
+
+async function streamExplanation(input: ExplainInput, onEvent: (event: StreamEvent) => void, signal: AbortSignal) {
+  const controller = new AbortController()
+  const cancel = () => controller.abort()
+  signal.addEventListener('abort', cancel, { once: true })
+  if (signal.aborted) cancel()
+  const timer = window.setTimeout(cancel, 190_000)
+  try {
+    const response = await fetch('/api/v1/explanations/stream', {
+      method: 'POST', credentials: 'same-origin', signal: controller.signal,
+      headers: { 'Content-Type': 'application/json', 'X-MathWiki-Request': '1', Accept: 'text/event-stream' },
+      body: JSON.stringify(input)
+    })
+    if (!response.ok) {
+      if (response.status === 401) window.dispatchEvent(new Event('mathwiki:login-required'))
+      const payload = await response.json().catch(() => ({})) as { error?: string }
+      throw new ApiError(payload.error || `请求失败（${response.status}）`, response.status)
+    }
+    await readExplanationStream(response, onEvent)
+  } catch (error) {
+    if (controller.signal.aborted && !signal.aborted) throw new Error('请求超时，请重试或缩小问题范围')
+    throw error
+  } finally {
+    window.clearTimeout(timer)
+    signal.removeEventListener('abort', cancel)
+  }
 }
 
 export class ApiError extends Error {
@@ -120,6 +149,7 @@ export const api = {
   setFavorite: (articleId: number, saved: boolean) => request<{ articleId: number; saved: boolean }>(`/articles/${articleId}/favorite`, { method: 'PUT', body: JSON.stringify({ saved }) }),
   likeAnnotation: (annotationId: number, liked = true) => request<{ id: number; likes: number; liked: boolean }>(`/annotations/${annotationId}/like`, { method: liked ? 'POST' : 'DELETE', body: '{}' }),
   explain: (input: ExplainInput) => request<Explanation>('/explanations', { method: 'POST', body: JSON.stringify(input) }, 190_000),
+  streamExplanation,
   feedback: (articleId: number, kind: string, body = '') => request('/feedback', { method: 'POST', body: JSON.stringify({ articleId, kind, body }) }),
   transcribe: transcribeAudio
 }
