@@ -24,6 +24,7 @@ type Citation struct {
 }
 type Explanation struct {
 	Mode       string     `json:"mode"`
+	Kind       string     `json:"kind,omitempty"`
 	Summary    string     `json:"summary"`
 	Steps      []Step     `json:"steps"`
 	Citations  []Citation `json:"citations"`

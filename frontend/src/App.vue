@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { api } from './api'
-import { conversationHistory, type ConversationTurn } from './explanationStream'
+import { conversationHistory, handleComposerKey, type ConversationTurn } from './explanationStream'
 import WikiContent from './components/WikiContent.vue'
 import AuthPage from './components/AuthPage.vue'
 import ArticleComments from './components/ArticleComments.vue'
@@ -839,11 +839,11 @@ onUnmounted(() => {
             <article v-for="(turn, turnIndex) in conversation" :key="turnIndex" class="conversation-turn">
               <p class="user-question">{{ turn.question }}</p>
               <div v-if="turn.result" class="answer-card">
-                <div class="answer-head"><span class="verified-badge">{{ turn.result.mode === 'demo' ? '引用示例 · 未调用模型' : '模型自检完成' }}</span></div>
+                <div v-if="turn.result.kind !== 'conversation'" class="answer-head"><span class="verified-badge">{{ turn.result.mode === 'demo' ? '引用示例 · 未调用模型' : '模型自检完成' }}</span></div>
                 <p class="answer-summary">{{ turn.result.summary }}</p>
                 <div class="answer-steps"><div v-for="(step, i) in turn.result.steps" :key="i"><b>{{ i + 1 }}</b><section><strong>{{ step.title }}</strong><p>{{ step.content }}</p></section></div></div>
-                <details><summary>依据与核验 <span>{{ turn.result.citations.length }} 条引用</span></summary><div class="citation" v-for="(cite, i) in turn.result.citations" :key="i"><span>{{ cite.section }}</span><p>“{{ cite.quote }}”</p></div></details>
-                <div class="answer-actions"><span>这条解释有帮助吗？</span><button @click="sendFeedback('helpful')">有帮助</button><button @click="sendFeedback('needs_improvement')">需改进</button></div>
+                <details v-if="turn.result.citations.length"><summary>依据与核验 <span>{{ turn.result.citations.length }} 条引用</span></summary><div class="citation" v-for="(cite, i) in turn.result.citations" :key="i"><span>{{ cite.section }}</span><p>“{{ cite.quote }}”</p></div></details>
+                <div v-if="turn.result.kind !== 'conversation'" class="answer-actions"><span>这条解释有帮助吗？</span><button @click="sendFeedback('helpful')">有帮助</button><button @click="sendFeedback('needs_improvement')">需改进</button></div>
               </div>
               <template v-else>
                 <p v-if="turn.text" class="stream-answer">{{ turn.text }}</p>
@@ -853,8 +853,8 @@ onUnmounted(() => {
             </article>
           </div>
           <div class="prompt-box" :class="{ listening }">
-            <textarea v-model="explainPrompt" rows="3" :placeholder="conversation.length ? '继续追问，例如：第二步能举个例子吗？' : '关于这个词条，你想理解什么？'" @keydown.ctrl.enter="runExplain" />
-            <div><button class="mic-btn" :class="{ recording: listening }" title="语音输入" aria-label="语音输入" @click="toggleListening" v-html="icon('mic', 17)" /><span v-if="listening" class="listening-label">正在听…</span><span v-else>Ctrl + Enter 发送</span><button v-if="explaining" class="text-btn" @click="stopExplanation">停止生成</button><button v-else class="send-btn" aria-label="发送解释请求" :disabled="!explainPrompt.trim()" @click="runExplain" v-html="icon('send', 16)" /></div>
+            <textarea v-model="explainPrompt" rows="3" :placeholder="conversation.length ? '继续追问，例如：第二步能举个例子吗？' : '关于这个词条，你想理解什么？'" @keydown="handleComposerKey($event, runExplain)" />
+            <div><button class="mic-btn" :class="{ recording: listening }" title="语音输入" aria-label="语音输入" @click="toggleListening" v-html="icon('mic', 17)" /><span v-if="listening" class="listening-label">正在听…</span><span v-else>Enter 发送 · Ctrl + Enter 换行</span><button v-if="explaining" class="text-btn" @click="stopExplanation">停止生成</button><button v-else class="send-btn" aria-label="发送解释请求" :disabled="!explainPrompt.trim()" @click="runExplain" v-html="icon('send', 16)" /></div>
           </div>
           <div v-if="!conversation.length" class="suggestion-area"><span>可以这样问</span><button @click="explainPrompt = '用一个生活中的例子解释这个算法'; runExplain()">用生活例子解释</button><button @click="explainPrompt = '一步步展示算法如何运行'; runExplain()">一步步演示</button><button @click="explainPrompt = '这个算法最容易误解的地方是什么？'; runExplain()">指出常见误区</button></div>
         </div>

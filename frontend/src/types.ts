@@ -37,6 +37,7 @@ export type Annotation = {
 }
 export type Explanation = {
   mode?: 'demo' | 'model'
+  kind?: 'conversation' | 'explanation'
   summary: string
   steps: { title: string; content: string }[]
   citations: { section: string; quote: string }[]

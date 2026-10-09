@@ -3,6 +3,17 @@ import type { Explanation } from './types'
 export type StreamEvent = { type: 'phase' | 'delta' | 'done' | 'error'; text?: string; explanation?: Explanation }
 export type ConversationTurn = { question: string; text: string; result?: Explanation; error?: string }
 
+export function handleComposerKey(event: KeyboardEvent, send: () => void) {
+  if (event.key !== 'Enter' || event.isComposing || event.keyCode === 229) return
+  event.preventDefault()
+  if (event.repeat) return
+  if (event.ctrlKey || event.shiftKey || event.metaKey) {
+    const input = event.currentTarget as HTMLTextAreaElement
+    input.setRangeText('\n', input.selectionStart, input.selectionEnd, 'end')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  } else send()
+}
+
 export function conversationHistory(turns: ConversationTurn[]) {
   const pairs = turns.filter(turn => turn.result?.mode === 'model').slice(-6).map(turn => {
     const result = turn.result!

@@ -6,9 +6,11 @@ AI 解释现在通过登录后可用的 POST `/api/v1/explanations/stream` 返�
 
 官方流式协议参考：https://api-docs.deepseek.com/api/create-chat-completion/
 
+感谢、夸奖、表示学会了或收尾应返回简短回应，不强行展开数学讲解。普通回应不显示核验徽标、引用折叠栏或数学解释评价按钮。Enter 发送，Ctrl + Enter 换行（Shift/Command + Enter 也支持换行）；中文输入法确认选字时不会发送。
+
 ## 更新服务器
 
-将 `mathwiki-streaming-update.zip` 上传到 `/opt` 并解压覆盖源码，保留包内 `mathwiki/` 目录结构。包内没有 `.env`、密钥、数据库或本地构建产物。沿用服务器的 DeepSeek 配置，本次无需修改密钥。
+将 `mathwiki-chat-polish-update.zip` 上传到 `/opt` 并解压覆盖源码，保留包内 `mathwiki/` 目录结构。包内没有 `.env`、密钥、数据库或本地构建产物。沿用服务器的 DeepSeek 配置，本次无需修改密钥。
 
 这次前后端都需要在服务器构建。在宝塔终端执行：
 

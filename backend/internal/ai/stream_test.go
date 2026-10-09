@@ -80,3 +80,46 @@ func TestStreamCancellationDoesNotVerify(t *testing.T) {
 		t.Fatal("expected cancellation")
 	}
 }
+
+func TestConversationCanFinishWithoutInventingCitations(t *testing.T) {
+	for _, tc := range []struct {
+		name, answer string
+		wantError    bool
+	}{
+		{"closing reply", `{"kind":"conversation","summary":"学会就好！有新的疑问随时问。","steps":[],"citations":[],"checks":[]}`, false},
+		{"math needs evidence", `{"kind":"explanation","summary":"数学结论","steps":[],"citations":[]}`, true},
+		{"chat cannot contain a proof", `{"kind":"conversation","summary":"讲解","steps":[{"title":"证明","content":"结论"}],"citations":[]}`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var p struct {
+					Stream   bool      `json:"stream"`
+					Messages []Message `json:"messages"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+					t.Error(err)
+					return
+				}
+				if p.Stream {
+					fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"学会就好！\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+				} else {
+					json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": tc.answer}, "finish_reason": "stop"}}})
+				}
+			}))
+			defer server.Close()
+			done := false
+			got, err := New(server.URL, "test-key", "deepseek-flash").Stream(context.Background(), model.Article{}, "好吧，我学会了，你真聪明", "本科生", "直觉", nil, func(event StreamEvent) error {
+				if event.Type == "done" {
+					done = true
+				}
+				return nil
+			})
+			if (err != nil) != tc.wantError {
+				t.Fatalf("unexpected err=%v", err)
+			}
+			if !tc.wantError && (!done || got.Kind != "conversation" || got.Citations == nil || len(got.Steps) != 0) {
+				t.Fatalf("not a plain conversational reply: %+v", got)
+			}
+		})
+	}
+}
