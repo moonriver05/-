@@ -61,6 +61,7 @@ func (e *Explainer) Explain(ctx context.Context, article model.Article, question
 
 输出严格 JSON，不要 Markdown：
 {"summary":"一句话答案","steps":[{"title":"步骤标题","content":"解释"}],"citations":[{"section":"章节编号与标题","quote":"证据中的短句"}],"confidence":0到1之间的数字,"checks":["已检查事项"]}`, audience, style, question, sources)
+	draftPrompt += "\n" + teachingGuidance(audience, style)
 	draft, err := e.complete(ctx, "你负责生成有出处、易理解的中文数学解释。", draftPrompt)
 	if err != nil {
 		return Explanation{}, err
@@ -75,6 +76,7 @@ func (e *Explainer) Explain(ctx context.Context, article model.Article, question
 %s
 
 输出与待核验解释完全相同字段的严格 JSON。checks 必须列出具体完成的核验，confidence 对证据覆盖程度评分。`, sources, draft)
+	verifyPrompt += "\n" + teachingGuidance(audience, style)
 	verified, err := e.complete(ctx, "你是严谨的中文数学内容核验员，不允许保留无法由给定证据支持的结论。", verifyPrompt)
 	if err != nil {
 		return Explanation{}, err
