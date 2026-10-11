@@ -26,7 +26,8 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-deepseek-flash}
-      STT_PROVIDER: ${STT_PROVIDER:-mock}
+      STT_PROVIDER: ${STT_PROVIDER:-doubao}
+      DOUBAO_SPEECH_API_KEY: ${DOUBAO_SPEECH_API_KEY:-}
       DEMO_SEED: ${DEMO_SEED:-true}
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
       SMTP_HOST: ${SMTP_HOST:-}

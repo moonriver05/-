@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { api } from './api'
+import { SpeechInput } from './speechInput'
 import { conversationHistory, handleComposerKey, type ConversationTurn } from './explanationStream'
 import WikiContent from './components/WikiContent.vue'
 import AuthPage from './components/AuthPage.vue'
@@ -55,6 +56,7 @@ const annotationText = ref('')
 const toast = ref<Toast | null>(null)
 const searchInput = ref<HTMLInputElement | null>(null)
 const listening = ref(false)
+const voiceBusy = ref(false)
 const sortMode = ref('最近更新')
 const searchSortMode = ref('相关度')
 const displayedSortMode = computed({
@@ -132,6 +134,7 @@ function profileUpdated(nextUser: User) {
 const accountBusy = ref(false)
 function requestLogin() { authOpen.value = true }
 function sessionExpired() {
+  cancelVoice()
   clearConversation()
   feedbackOpen.value = false
   profileOpen.value = false
@@ -142,6 +145,7 @@ function sessionExpired() {
 function requireAccount() { if (user.value) return true; requestLogin(); return false }
 function canDelete(owner?: number) { return !!user.value && (user.value.role === 'admin' || user.value.id === owner) }
 async function accountChanged(nextUser: User | null) {
+  cancelVoice()
   clearConversation()
   feedbackOpen.value = false
   profileOpen.value = false
@@ -173,9 +177,8 @@ async function deleteReply(note: Annotation, comment: Comment) {
   try { await api.deleteComment(comment.id); commentLists.value[note.id] = (commentLists.value[note.id] ?? []).filter(c => c.id !== comment.id); note.replies = Math.max(0, note.replies - 1) }
   catch (e) { showToast(e instanceof Error ? e.message : '删除失败') }
 }
-let mediaRecorder: MediaRecorder | null = null
-let audioStream: MediaStream | null = null
-let audioChunks: Blob[] = []
+let voiceInput: SpeechInput | null = null
+function cancelVoice() { voiceInput?.cancel(); voiceInput = null; listening.value = false; voiceBusy.value = false }
 
 const collections = computed(() => [
   { name: '全部条目', icon: 'library', count: stats.value?.articleCount ?? items.value.length },
@@ -240,6 +243,7 @@ function icon(name: string, size = 18) {
 let articleRequest = 0
 
 async function selectArticle(article: Article) {
+  cancelVoice()
   clearConversation()
   const requestId = ++articleRequest
   activeArticle.value = article
@@ -376,7 +380,7 @@ function explainSelection() {
 
 async function runExplain() {
   if (!requireAccount()) return
-  if (explaining.value || !explainPrompt.value.trim()) return
+  if (explaining.value || voiceBusy.value || !explainPrompt.value.trim()) return
   if (!requireOnline()) return
   const requestedArticle = activeArticle.value.id
   const question = explainPrompt.value.trim()
@@ -615,55 +619,33 @@ function toggleTheme() {
 }
 
 async function toggleListening() {
+  if (listening.value) { voiceInput?.stop(); return }
+  if (voiceBusy.value || explaining.value) return
+  if (!requireAccount()) return
   if (!capabilities.value.speechConfigured) {
     showToast('语音识别尚未接入云服务，请暂时使用文字输入')
     return
   }
-  if (listening.value && mediaRecorder?.state === 'recording') {
-    mediaRecorder.stop()
-    return
-  }
-  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
-    showToast('当前浏览器不支持录音，请改用文字输入')
-    return
-  }
+  voiceBusy.value = true
+  const previousPrompt = explainPrompt.value
+  const voice = new SpeechInput(
+    text => { if (voiceInput === voice) explainPrompt.value = previousPrompt.trim() ? `${previousPrompt.trim()}\n${text}` : text },
+    state => {
+      if (voiceInput !== voice) return
+      listening.value = state === 'recording'
+      voiceBusy.value = state !== 'done'
+      if (state === 'recording') showToast('正在录音，再点一次结束；最多 60 秒')
+      if (state === 'done') voiceInput = null
+    },
+    message => showToast(message)
+  )
+  voiceInput = voice
   try {
-    audioStream = await navigator.mediaDevices.getUserMedia({ audio: true })
-    const mimeType = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4']
-      .find(type => MediaRecorder.isTypeSupported(type))
-    mediaRecorder = new MediaRecorder(audioStream, mimeType ? { mimeType } : undefined)
-    audioChunks = []
-    mediaRecorder.ondataavailable = event => {
-      if (event.data.size) audioChunks.push(event.data)
-    }
-    mediaRecorder.onerror = () => {
-      listening.value = false
-      audioStream?.getTracks().forEach(track => track.stop())
-      showToast('录音失败，请检查麦克风权限')
-    }
-    mediaRecorder.onstop = async () => {
-      listening.value = false
-      audioStream?.getTracks().forEach(track => track.stop())
-      if (!audioChunks.length) {
-        showToast('没有检测到可转写的语音')
-        return
-      }
-      try {
-        const audio = new Blob(audioChunks, { type: mediaRecorder?.mimeType || 'audio/webm' })
-        const result = await api.transcribe(audio)
-        explainPrompt.value = result.text
-        showToast('语音已转写到输入框')
-      } catch (error) {
-        showToast(error instanceof Error ? error.message : '语音转写失败')
-      }
-    }
-    mediaRecorder.start()
-    listening.value = true
-    showToast('正在录音，再次点击结束并转写')
-  } catch {
-    audioStream?.getTracks().forEach(track => track.stop())
-    listening.value = false
-    showToast('无法使用麦克风，请检查浏览器权限')
+    await voice.start()
+  } catch (error) {
+    if (voiceInput !== voice) return
+    cancelVoice()
+    showToast(error instanceof Error ? error.message : '无法使用麦克风，请检查权限')
   }
 }
 
@@ -693,8 +675,7 @@ onUnmounted(() => {
   window.removeEventListener('mathwiki:login-required', sessionExpired)
   window.removeEventListener('keydown', handleShortcut)
   window.clearTimeout(searchTimer)
-  if (mediaRecorder?.state === 'recording') mediaRecorder.stop()
-  audioStream?.getTracks().forEach(track => track.stop())
+  cancelVoice()
 })
 </script>
 
@@ -854,7 +835,7 @@ onUnmounted(() => {
           </div>
           <div class="prompt-box" :class="{ listening }">
             <textarea v-model="explainPrompt" rows="3" :placeholder="conversation.length ? '继续追问，例如：第二步能举个例子吗？' : '关于这个词条，你想理解什么？'" @keydown="handleComposerKey($event, runExplain)" />
-            <div><button class="mic-btn" :class="{ recording: listening }" title="语音输入" aria-label="语音输入" @click="toggleListening" v-html="icon('mic', 17)" /><span v-if="listening" class="listening-label">正在听…</span><span v-else>Enter 发送 · Ctrl + Enter 换行</span><button v-if="explaining" class="text-btn" @click="stopExplanation">停止生成</button><button v-else class="send-btn" aria-label="发送解释请求" :disabled="!explainPrompt.trim()" @click="runExplain" v-html="icon('send', 16)" /></div>
+            <div><button class="mic-btn" :class="{ recording: listening }" :disabled="(voiceBusy && !listening) || explaining" title="语音输入" aria-label="语音输入" @click="toggleListening" v-html="icon('mic', 17)" /><span v-if="listening" class="listening-label">正在听…</span><span v-else-if="voiceBusy">正在连接或识别…</span><span v-else>Enter 发送 · Ctrl + Enter 换行</span><button v-if="explaining" class="text-btn" @click="stopExplanation">停止生成</button><button v-else class="send-btn" aria-label="发送解释请求" :disabled="!explainPrompt.trim() || voiceBusy" @click="runExplain" v-html="icon('send', 16)" /></div>
           </div>
           <div v-if="!conversation.length" class="suggestion-area"><span>可以这样问</span><button @click="explainPrompt = '用一个生活中的例子解释这个算法'; runExplain()">用生活例子解释</button><button @click="explainPrompt = '一步步展示算法如何运行'; runExplain()">一步步演示</button><button @click="explainPrompt = '这个算法最容易误解的地方是什么？'; runExplain()">指出常见误区</button></div>
         </div>

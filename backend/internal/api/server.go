@@ -18,6 +18,7 @@ import (
 	"mathwiki/internal/mail"
 	"mathwiki/internal/model"
 	"mathwiki/internal/search"
+	"mathwiki/internal/speech"
 	"mathwiki/internal/storage"
 )
 
@@ -29,10 +30,12 @@ type Server struct {
 	limiter     authLimiter
 	mailer      mail.Sender
 	avatars     storage.AvatarStore
+	speech      *speech.Client
+	speechSlots chan struct{}
 }
 
 func New(db *gorm.DB, searchClient *search.Client, explainer *ai.Explainer, sttProvider string) *Server {
-	return &Server{db: db, search: searchClient, explainer: explainer, sttProvider: sttProvider, limiter: authLimiter{entries: make(map[string]attempt)}, mailer: mail.FromEnv(), avatars: storage.FromEnv()}
+	return &Server{db: db, search: searchClient, explainer: explainer, sttProvider: sttProvider, limiter: authLimiter{entries: make(map[string]attempt)}, mailer: mail.FromEnv(), avatars: storage.FromEnv(), speech: speech.FromEnv(sttProvider), speechSlots: make(chan struct{}, 2)}
 }
 
 func (s *Server) Router() *gin.Engine {
@@ -84,7 +87,7 @@ func (s *Server) Router() *gin.Engine {
 		v1.GET("/categories", s.listCategories)
 		v1.POST("/categories", requireAdmin, s.createCategory)
 		v1.GET("/capabilities", func(c *gin.Context) {
-			c.JSON(200, gin.H{"aiConfigured": s.explainer.Configured(), "speechConfigured": false})
+			c.JSON(200, gin.H{"aiConfigured": s.explainer.Configured(), "speechConfigured": s.speech.Configured()})
 		})
 		v1.GET("/articles", s.listArticles)
 		v1.POST("/articles", requireAdmin, s.createArticle)
@@ -102,6 +105,7 @@ func (s *Server) Router() *gin.Engine {
 		v1.POST("/explanations/stream", requireLogin, s.explainStream)
 		v1.POST("/feedback", requireLogin, s.createFeedback)
 		v1.POST("/speech/transcribe", requireLogin, s.transcribe)
+		v1.GET("/speech/stream", requireLogin, s.speechRateLimit, s.speechStream)
 	}
 	return r
 }
