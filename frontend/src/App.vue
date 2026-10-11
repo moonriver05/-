@@ -26,6 +26,25 @@ const activeCollection = ref('全部条目')
 const panelTab = ref<PanelTab>('ai')
 const rightOpen = ref(true)
 const sidebarOpen = ref(false)
+const mobileView = ref<'results' | 'reader' | 'insight'>('results')
+const hasSelectedArticle = ref(false)
+
+function openInsight(tab: PanelTab = panelTab.value) {
+  panelTab.value = tab
+  rightOpen.value = true
+  mobileView.value = 'insight'
+  sidebarOpen.value = false
+}
+
+function closeInsight() {
+  rightOpen.value = false
+  mobileView.value = 'reader'
+}
+
+function toggleInsight() {
+  if (window.matchMedia('(max-width: 850px)').matches || !rightOpen.value) openInsight()
+  else closeInsight()
+}
 const level = ref('本科生')
 const explainStyle = ref('直觉 + 严谨')
 const explainPrompt = ref('为什么边权不能是负数？')
@@ -113,7 +132,7 @@ function openMyFeedback() { if (requireAccount()) feedbackOpen.value = true }
 async function moderationChanged(section: ModerationSection) {
   if (section === 'annotations') { await refreshNotes(); return }
   if (section !== 'articles') return
-  try { await loadArticles(); await refreshStats(); subjects.value = await api.getCategories(); if (readerVisible.value) await selectArticle(activeArticle.value) }
+  try { await loadArticles(); await refreshStats(); subjects.value = await api.getCategories(); if (readerVisible.value) await selectArticle(activeArticle.value, false); else if (items.value.length) await selectArticle(items.value[0], false) }
   catch { showToast('操作已保存，知识库刷新失败，请稍后刷新页面') }
 }
 async function removeActiveArticle() {
@@ -121,7 +140,7 @@ async function removeActiveArticle() {
   const article = activeArticle.value
   if (!window.confirm(`将「${article.title}」移入回收站？正文和关联讨论将隐藏，可在审核管理中恢复。`)) return
   articleDeleteBusy.value = true; menu.value = null
-  try { await api.deleteArticle(article.id); annotations.value = []; commentLists.value = {}; clearConversation(); await moderationChanged('articles'); showToast('条目已移入回收站，可在审核管理中恢复') }
+  try { await api.deleteArticle(article.id); hasSelectedArticle.value = false; mobileView.value = 'results'; annotations.value = []; commentLists.value = {}; clearConversation(); await moderationChanged('articles'); showToast('条目已移入回收站，可在审核管理中恢复') }
   catch (e) { showToast(e instanceof Error ? e.message : '删除失败') }
   finally { articleDeleteBusy.value = false }
 }
@@ -204,7 +223,7 @@ const filteredArticles = computed(() => {
   return result
 })
 
-const readerVisible = computed(() => filteredArticles.value.some(article => article.id === activeArticle.value.id))
+const readerVisible = computed(() => hasSelectedArticle.value)
 const articleAnnotations = computed(() => annotations.value.filter(a => a.articleId === activeArticle.value.id))
 const visibleNotes = computed(() => {
   const notes = articleAnnotations.value.filter(note => !noteFilter.value || noteFilter.value.includes(note.quote))
@@ -242,7 +261,10 @@ function icon(name: string, size = 18) {
 
 let articleRequest = 0
 
-async function selectArticle(article: Article) {
+async function selectArticle(article: Article, showReader = true) {
+  hasSelectedArticle.value = true
+  if (showReader) mobileView.value = 'reader'
+  if (showReader) searchInput.value?.blur()
   cancelVoice()
   clearConversation()
   const requestId = ++articleRequest
@@ -255,7 +277,7 @@ async function selectArticle(article: Article) {
   selectedQuote.value = ''
   composerOpen.value = false
   sidebarOpen.value = false
-  document.querySelector('.reader-scroll')?.scrollTo({ top: 0, behavior: 'smooth' })
+  nextTick(() => document.querySelector('.reader-scroll')?.scrollTo({ top: 0 }))
   if (apiState.value !== 'online') {
     annotations.value = seedAnnotations.filter(note => note.articleId === article.id)
     return
@@ -279,10 +301,11 @@ async function selectArticle(article: Article) {
 function chooseCollection(name: string) {
   if (['我的收藏', '最近阅读', '我的批注'].includes(name) && !requireAccount()) return
   activeCollection.value = name
+  mobileView.value = 'results'
   query.value = ''
   activeType.value = '全部'
   menu.value = null
-  if (name === '我的批注') { panelTab.value = 'notes'; rightOpen.value = true }
+  if (name === '我的批注') openInsight('notes')
   sidebarOpen.value = false
 }
 
@@ -310,7 +333,6 @@ async function loadArticles(append = false) {
     page.value = Number(params.page)
     items.value = append ? [...items.value, ...result.items] : result.items
     totalArticles.value = result.total
-    if (!append && result.items.length && !result.items.some(item => item.id === activeArticle.value.id)) await selectArticle(result.items[0])
   } catch (error) {
     if (requestId === listRequest) listError.value = error instanceof Error ? error.message : '条目加载失败'
   } finally {
@@ -328,11 +350,12 @@ async function loadBackendContent() {
     items.value = []
     apiState.value = 'online'
     await loadArticles()
-    if (items.value.length) await selectArticle(items.value[0])
+    if (!hasSelectedArticle.value && items.value.length) await selectArticle(items.value[0], false)
   } catch {
     apiState.value = 'offline'
     items.value = [...mockArticles]
     activeArticle.value = items.value[0]
+    hasSelectedArticle.value = true
     annotations.value = [...seedAnnotations]
     stats.value = null
     subjects.value = [...new Set(mockArticles.map(article => article.category))].map(name => ({ name, count: mockArticles.filter(article => article.category === name).length, children: [] }))
@@ -341,6 +364,7 @@ async function loadBackendContent() {
 
 let searchTimer: number | undefined
 watch(query, (value, previous) => {
+  mobileView.value = 'results'
   if (value.trim() && !previous.trim()) searchSortMode.value = '相关度'
 })
 watch([query, activeCollection, activeType, sortMode, searchSortMode], () => {
@@ -366,15 +390,13 @@ function handleSelection() {
 function openAnnotation() {
   if (!requireAccount()) return
   composerOpen.value = true
-  panelTab.value = 'notes'
-  rightOpen.value = true
+  openInsight('notes')
   nextTick(() => document.querySelector<HTMLTextAreaElement>('.annotation-input')?.focus())
 }
 
 function explainSelection() {
   explainPrompt.value = `请解释这句话：${selectedQuote.value}`
-  panelTab.value = 'ai'
-  rightOpen.value = true
+  openInsight('ai')
   runExplain()
 }
 
@@ -558,8 +580,7 @@ async function copyText(text: string) {
 
 function showSectionNotes(content: string) {
   noteFilter.value = content
-  panelTab.value = 'notes'
-  rightOpen.value = true
+  openInsight('notes')
 }
 
 function annotateSection(content: string) {
@@ -680,7 +701,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="app-shell" :class="{ 'focus-mode': focusMode, dark: darkMode }" @click="menu = null">
+  <div class="app-shell" :class="{ 'focus-mode': focusMode, dark: darkMode, ['mobile-' + mobileView]: true }" @click="menu = null">
     <AuthPage v-if="authOpen" @close="authOpen = false" @authenticated="accountChanged" />
     <ProfilePage v-if="profileOpen && user" :user="user" @close="profileOpen = false" @updated="profileUpdated" />
     <ModerationPanel v-if="moderationOpen && user?.role === 'admin'" v-bind="moderationOptions" @close="moderationOpen = false" @changed="moderationChanged" />
@@ -693,7 +714,7 @@ onUnmounted(() => {
       </div>
       <div class="global-search">
         <span v-html="icon('search', 16)" />
-        <input ref="searchInput" v-model="query" placeholder="搜索概念、算法或公式" aria-label="搜索知识库" />
+        <input ref="searchInput" v-model="query" type="search" placeholder="搜索词条标题" aria-label="搜索知识库" @focus="mobileView = 'results'" />
         <kbd>Ctrl K</kbd>
       </div>
       <div class="top-actions">
@@ -706,6 +727,11 @@ onUnmounted(() => {
       </div>
     </header>
 
+    <nav class="mobile-navigation" aria-label="工作区切换" :inert="authOpen || moderationOpen || profileOpen || feedbackOpen">
+      <button :aria-current="mobileView === 'results' ? 'page' : undefined" @click="mobileView = 'results'; sidebarOpen = false">词条列表</button>
+      <button :disabled="!readerVisible" :aria-current="mobileView === 'reader' ? 'page' : undefined" @click="mobileView = 'reader'; sidebarOpen = false">正文阅读</button>
+      <button :disabled="!readerVisible" :aria-current="mobileView === 'insight' ? 'page' : undefined" @click="openInsight('ai')">AI / 批注</button>
+    </nav>
     <div class="workspace" :inert="authOpen || moderationOpen || profileOpen || feedbackOpen">
       <aside class="library-pane" :class="{ open: sidebarOpen }">
         <div class="pane-title menu-anchor"><span>知识库</span><button class="quiet-btn" aria-label="知识库菜单" :aria-expanded="menu === 'library'" @click.stop="menu = menu === 'library' ? null : 'library'" v-html="icon('more')" />
@@ -756,7 +782,7 @@ onUnmounted(() => {
             <h3>{{ article.title }}</h3><p>{{ article.excerpt }}</p>
             <div class="article-meta"><span>{{ article.category }}</span><span>{{ article.readMinutes }} 分钟</span></div>
           </button>
-          <div v-if="!loadingList && !filteredArticles.length && !listError" class="empty-state"><span v-html="icon('search', 28)" /><strong>当前分类暂无条目</strong><small>{{ query ? '试试其他关键词，或回到全部条目' : '可新建条目，或选择其他分类' }}</small><button class="text-btn" @click="chooseCollection('全部条目')">查看全部条目</button></div>
+          <div v-if="!loadingList && !filteredArticles.length && !listError" class="empty-state"><span v-html="icon('search', 28)" /><strong>{{ query ? '没有找到匹配的词条' : '当前分类暂无条目' }}</strong><small>{{ query ? '试试其他标题关键词，或回到全部条目' : '可新建条目，或选择其他分类' }}</small><button class="text-btn" @click="chooseCollection('全部条目')">查看全部条目</button></div>
           <button v-if="items.length < totalArticles && apiState === 'online'" class="load-more" :disabled="loadingList" @click="loadArticles(true)">加载更多（已显示 {{ items.length }} / {{ totalArticles }}）</button>
         </div>
       </section>
@@ -767,9 +793,9 @@ onUnmounted(() => {
           <div class="reader-actions">
             <button class="icon-btn" :disabled="favoriteBusy" :aria-pressed="activeArticle.saved" :class="{ active: activeArticle.saved }" title="收藏" aria-label="收藏当前条目" @click="toggleSaved(activeArticle)" v-html="icon('bookmark')" />
             <div class="menu-anchor"><button class="icon-btn" title="更多" aria-label="条目更多操作" :aria-expanded="menu === 'article'" @click.stop="menu = menu === 'article' ? null : 'article'" v-html="icon('more')" />
-              <div v-if="menu === 'article'" class="action-menu" @click.stop><button @click="copyText(activeArticle.title + '\n' + activeArticle.excerpt + '\n\n' + activeArticle.sections.map(s => s.title + '\n' + s.content + (s.formula ? '\n' + s.formula : '')).join('\n\n'))">复制条目正文</button><button @click="openDialog('feedback')">提出补充 / 纠错</button><button @click="panelTab = 'info'; rightOpen = true; menu = null">查看条目信息</button><template v-if="user?.role === 'admin'"><button @click="openModeration(activeArticle)">审核此条目</button><button class="danger" :disabled="articleDeleteBusy" @click="removeActiveArticle">删除条目</button></template></div>
+              <div v-if="menu === 'article'" class="action-menu" @click.stop><button @click="copyText(activeArticle.title + '\n' + activeArticle.excerpt + '\n\n' + activeArticle.sections.map(s => s.title + '\n' + s.content + (s.formula ? '\n' + s.formula : '')).join('\n\n'))">复制条目正文</button><button @click="openDialog('feedback')">提出补充 / 纠错</button><button @click="openInsight('info'); menu = null">查看条目信息</button><template v-if="user?.role === 'admin'"><button @click="openModeration(activeArticle)">审核此条目</button><button class="danger" :disabled="articleDeleteBusy" @click="removeActiveArticle">删除条目</button></template></div>
             </div>
-            <button class="icon-btn" :class="{ active: rightOpen }" title="右侧面板" aria-label="显示或隐藏右侧面板" @click="rightOpen = !rightOpen" v-html="icon('panel')" />
+            <button class="icon-btn" :class="{ active: rightOpen }" title="右侧面板" aria-label="显示或隐藏右侧面板" @click="toggleInsight" v-html="icon('panel')" />
           </div>
         </div>
         <div v-if="readerVisible" class="reader-scroll" @mouseup="handleSelection">
@@ -793,7 +819,7 @@ onUnmounted(() => {
               </button>
             </section>
             <div v-if="!activeArticle.sections.some(s => s.content.trim())" class="coming-soon"><span>暂无可展示的正文</span><p>请对照原始词条，或提交内容问题反馈。</p><button @click="openDialog('feedback')">反馈问题</button></div>
-            <footer class="article-footer"><span>{{ activeArticle.sourceUrl ? '来源：中文维基参考资料' : '社区投稿 · ' + articleReviewLabel(activeArticle.reviewStatus) }}</span><button @click="openDialog('feedback')">提出补充 / 纠错</button><a v-if="activeArticle.sourceUrl" :href="activeArticle.sourceUrl" target="_blank" rel="noreferrer" v-html="icon('external', 14) + ' 查看原始词条'" /><button v-else @click="panelTab = 'info'; rightOpen = true">查看条目信息</button></footer>
+            <footer class="article-footer"><span>{{ activeArticle.sourceUrl ? '来源：中文维基参考资料' : '社区投稿 · ' + articleReviewLabel(activeArticle.reviewStatus) }}</span><button @click="openDialog('feedback')">提出补充 / 纠错</button><a v-if="activeArticle.sourceUrl" :href="activeArticle.sourceUrl" target="_blank" rel="noreferrer" v-html="icon('external', 14) + ' 查看原始词条'" /><button v-else @click="openInsight('info')">查看条目信息</button></footer>
             <ArticleComments :key="activeArticle.id" :article-id="activeArticle.id" :user="user" :online="apiState === 'online'" @login="requestLogin" />
           </article>
         </div>
@@ -805,7 +831,7 @@ onUnmounted(() => {
           <button :class="{ active: panelTab === 'ai' }" @click="panelTab = 'ai'"><span v-html="icon('spark', 16)" />AI 解释</button>
           <button :class="{ active: panelTab === 'notes' }" @click="panelTab = 'notes'; noteFilter = ''"><span v-html="icon('comment', 16)" />批注 <em>{{ articleAnnotations.length }}</em></button>
           <button :class="{ active: panelTab === 'info' }" @click="panelTab = 'info'"><span v-html="icon('info', 16)" />条目信息</button>
-          <button class="close-panel" aria-label="关闭右侧面板" @click="rightOpen = false" v-html="icon('close', 15)" />
+          <button class="close-panel" aria-label="关闭右侧面板，返回正文" @click="closeInsight" v-html="icon('close', 15)" />
         </div>
 
         <div v-if="panelTab === 'ai'" class="insight-content ai-panel">
