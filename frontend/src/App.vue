@@ -12,7 +12,7 @@ import { articleReviewLabel, type ModerationSection } from './moderation'
 import { searchRank, searchSortParam } from './searchRanking'
 import ProfilePage from './components/ProfilePage.vue'
 import UserAvatar from './components/UserAvatar.vue'
-import type { User } from './types'
+import type { User, Explanation } from './types'
 import { articles as mockArticles, seedAnnotations } from './mock'
 import type { Annotation, Article, Stats, Category, Comment, Capabilities } from './types'
 
@@ -61,6 +61,20 @@ function clearConversation() {
 }
 
 function stopExplanation() { explainController?.abort() }
+
+async function openCitation(cite: Explanation['citations'][number]) {
+  if (!cite.articleSlug || !cite.sectionId) return
+  try {
+    if (activeArticle.value.slug !== cite.articleSlug) {
+      const article = await api.getArticle(cite.articleSlug)
+      await selectArticle(article)
+      if (detailError.value) return
+    }
+    mobileView.value = 'reader'
+    await nextTick()
+    document.getElementById(`section-${cite.sectionId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  } catch { showToast('引用来源暂不可用，词条可能已更新或撤回') }
+}
 
 function followConversation(force = false) {
   const panel = document.querySelector<HTMLElement>('.ai-panel')
@@ -420,7 +434,7 @@ async function runExplain() {
     await api.streamExplanation({ articleId: requestedArticle, question, audience: level.value, style: explainStyle.value, history }, event => {
       if (explainController !== controller || activeArticle.value.id !== requestedArticle) return
       if (event.type === 'delta') turn.text += event.text || ''
-      if (event.type === 'phase') verificationStage.value = event.text === 'verifying' ? 3 : 2
+      if (event.type === 'phase') verificationStage.value = event.text === 'retrieving' ? 1 : event.text === 'verifying' ? 3 : 2
       if (event.type === 'done') turn.result = event.explanation
       followConversation()
     }, controller.signal)
@@ -848,13 +862,14 @@ onUnmounted(() => {
               <div v-if="turn.result" class="answer-card">
                 <div v-if="turn.result.kind !== 'conversation'" class="answer-head"><span class="verified-badge">{{ turn.result.mode === 'demo' ? '引用示例 · 未调用模型' : '模型自检完成' }}</span></div>
                 <p class="answer-summary">{{ turn.result.summary }}</p>
+                <p v-if="turn.result.retrieval && turn.result.kind !== 'conversation' && turn.result.mode === 'model'" class="retrieval-status">{{ turn.result.retrieval.mode === 'chroma' ? `知识检索 · ${turn.result.retrieval.count} 段证据` : turn.result.retrieval.reason === 'disabled' ? '依据当前词条' : '知识检索未取得可用证据，依据当前词条回答' }}</p>
                 <div class="answer-steps"><div v-for="(step, i) in turn.result.steps" :key="i"><b>{{ i + 1 }}</b><section><strong>{{ step.title }}</strong><p>{{ step.content }}</p></section></div></div>
-                <details v-if="turn.result.citations.length"><summary>依据与核验 <span>{{ turn.result.citations.length }} 条引用</span></summary><div class="citation" v-for="(cite, i) in turn.result.citations" :key="i"><span>{{ cite.section }}</span><p>“{{ cite.quote }}”</p></div></details>
+                <details v-if="turn.result.citations.length"><summary>依据与核验 <span>{{ turn.result.citations.length }} 条引用</span></summary><div class="citation" v-for="(cite, i) in turn.result.citations" :key="i"><span>{{ cite.section }}</span><p>“{{ cite.quote }}”</p><button v-if="cite.articleSlug && cite.sectionId" class="text-btn" @click="openCitation(cite)">查看原文</button></div></details>
                 <div v-if="turn.result.kind !== 'conversation'" class="answer-actions"><span>这条解释有帮助吗？</span><button @click="sendFeedback('helpful')">有帮助</button><button @click="sendFeedback('needs_improvement')">需改进</button></div>
               </div>
               <template v-else>
                 <p v-if="turn.text" class="stream-answer">{{ turn.text }}</p>
-                <p v-if="explaining && turnIndex === conversation.length - 1" class="stream-status" role="status">{{ verificationStage === 3 ? '正在核验引用与结论…' : turn.text ? '正在回答…' : '正在连接模型…' }}</p>
+                <p v-if="explaining && turnIndex === conversation.length - 1" class="stream-status" role="status">{{ verificationStage === 3 ? '正在核验引用与结论…' : verificationStage === 1 && capabilities.ragConfigured ? '正在检索相关知识…' : turn.text ? '正在回答…' : '正在连接模型…' }}</p>
                 <p v-if="turn.error" class="inline-error" role="alert">{{ turn.error }}</p>
               </template>
             </article>

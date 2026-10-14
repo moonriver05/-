@@ -335,6 +335,8 @@ svg { display: block; fill: none; stroke: currentColor; stroke-width: 1.45; stro
 .dark .conversation-turn { border-color:#3b3c3f; }
 
 .mobile-navigation { display: none; }
+.retrieval-status { color: var(--muted); font-size: 12px; line-height: 1.7; }
+.citation .text-btn { font-size: 12px; min-height: 36px; color: var(--red); padding-left: 0; }
 @media (max-width: 850px) {
   .app-shell { height: 100dvh; }
   .topbar { height: auto; flex: 0 0 auto; min-height: 104px; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: 48px 48px; gap: 0 8px; padding: env(safe-area-inset-top, 0px) 12px 8px; }

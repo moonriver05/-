@@ -19,8 +19,11 @@ type Step struct {
 	Content string `json:"content"`
 }
 type Citation struct {
-	Section string `json:"section"`
-	Quote   string `json:"quote"`
+	Section     string `json:"section"`
+	Quote       string `json:"quote"`
+	ArticleID   uint   `json:"articleId,omitempty"`
+	ArticleSlug string `json:"articleSlug,omitempty"`
+	SectionID   uint   `json:"sectionId,omitempty"`
 }
 type Explanation struct {
 	Mode       string     `json:"mode"`
@@ -30,6 +33,13 @@ type Explanation struct {
 	Citations  []Citation `json:"citations"`
 	Confidence float64    `json:"confidence"`
 	Checks     []string   `json:"checks"`
+	Retrieval  *Retrieval `json:"retrieval,omitempty"`
+}
+
+type Retrieval struct {
+	Mode   string `json:"mode"`
+	Reason string `json:"reason,omitempty"`
+	Count  int    `json:"count"`
 }
 
 type Explainer struct {

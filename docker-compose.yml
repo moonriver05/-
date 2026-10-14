@@ -26,6 +26,12 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-deepseek-flash}
+      RAG_ENABLED: ${RAG_ENABLED:-false}
+      ARK_API_KEY: ${ARK_API_KEY:-}
+      ARK_BASE_URL: ${ARK_BASE_URL:-https://ark.cn-beijing.volces.com/api/v3}
+      ARK_EMBEDDING_MODEL: ${ARK_EMBEDDING_MODEL:-doubao-embedding-vision-251215}
+      CHROMA_URL: ${CHROMA_URL:-http://chroma:8000}
+      CHROMA_COLLECTION: ${CHROMA_COLLECTION:-mathwiki_rag_1024_v1}
       STT_PROVIDER: ${STT_PROVIDER:-doubao}
       DOUBAO_SPEECH_API_KEY: ${DOUBAO_SPEECH_API_KEY:-}
       DEMO_SEED: ${DEMO_SEED:-true}
@@ -60,7 +66,21 @@ services:
       timeout: 3s
       retries: 20
 
+  chroma:
+    profiles: [rag]
+    image: ${CHROMA_IMAGE:-chromadb/chroma@sha256:1e0b73a187a28757c572acba508c46f48c9e8b0acaf5c20e6d95cdedce1acdf6}
+    restart: "no"
+    mem_limit: 384m
+    memswap_limit: 384m
+    cpus: 1
+    ports: ["127.0.0.1:8000:8000"]
+    volumes: ["chroma-data:/data"]
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "2"}
+
   elasticsearch:
+    profiles: [search-es]
     build: ./infrastructure/elasticsearch
     environment:
       discovery.type: single-node
@@ -71,3 +91,6 @@ services:
       - type: bind
         source: ${MATHWIKI_DATA_ROOT:-E:/MathWikiData}/elasticsearch
         target: /usr/share/elasticsearch/data
+
+volumes:
+  chroma-data:

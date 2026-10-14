@@ -7,9 +7,9 @@ import (
 	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 	"mathwiki/internal/ai"
 	"mathwiki/internal/model"
+	"mathwiki/internal/rag"
 )
 
 func (s *Server) explainStream(c *gin.Context) {
@@ -30,7 +30,7 @@ func (s *Server) explainStream(c *gin.Context) {
 		return
 	}
 	var article model.Article
-	if err := s.db.Scopes(publicArticles).Preload("Sections", func(db *gorm.DB) *gorm.DB { return db.Order("position ASC") }).Where("id = ? AND published = ?", request.ArticleID, true).First(&article).Error; err != nil {
+	if err := s.db.Scopes(publicArticles).Select("id", "title", "slug", "lead").Preload("Sections", preloadEvidence).Where("id = ? AND published = ?", request.ArticleID, true).First(&article).Error; err != nil {
 		respondDB(c, err)
 		return
 	}
@@ -38,9 +38,16 @@ func (s *Server) explainStream(c *gin.Context) {
 	c.Header("Cache-Control", "no-cache, no-transform")
 	c.Header("X-Accel-Buffering", "no")
 	c.Status(http.StatusOK)
+	var evidence []rag.Evidence
+	status := rag.Status{Mode: "current_article", Reason: "disabled"}
 	emit := func(event ai.StreamEvent) error {
 		if err := c.Request.Context().Err(); err != nil {
 			return err
+		}
+		if event.Type == "done" {
+			if err := decorateEvidence(event.Explanation, evidence, status); err != nil {
+				return err
+			}
 		}
 		data, _ := json.Marshal(event)
 		if _, err := c.Writer.Write(append(append([]byte("data: "), data...), []byte("\n\n")...)); err != nil {
@@ -49,7 +56,16 @@ func (s *Server) explainStream(c *gin.Context) {
 		c.Writer.Flush()
 		return nil
 	}
-	result, err := s.explainer.Stream(c.Request.Context(), article, strings.TrimSpace(request.Question), request.Audience, request.Style, request.History, emit)
+	sources := article
+	if s.explainer.Configured() {
+		if s.rag.Configured() {
+			if err := emit(ai.StreamEvent{Type: "phase", Text: "retrieving"}); err != nil {
+				return
+			}
+		}
+		sources, evidence, status = s.retrieveEvidence(c.Request.Context(), article, request.Question)
+	}
+	result, err := s.explainer.Stream(c.Request.Context(), sources, strings.TrimSpace(request.Question), request.Audience, request.Style, request.History, emit)
 	if err != nil {
 		if c.Request.Context().Err() == nil {
 			_ = emit(ai.StreamEvent{Type: "error", Text: "回答未完成，请重试。已显示的内容尚未完成核验。"})

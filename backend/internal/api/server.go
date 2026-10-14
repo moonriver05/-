@@ -17,6 +17,7 @@ import (
 	"mathwiki/internal/ai"
 	"mathwiki/internal/mail"
 	"mathwiki/internal/model"
+	"mathwiki/internal/rag"
 	"mathwiki/internal/search"
 	"mathwiki/internal/speech"
 	"mathwiki/internal/storage"
@@ -32,10 +33,11 @@ type Server struct {
 	avatars     storage.AvatarStore
 	speech      *speech.Client
 	speechSlots chan struct{}
+	rag         *rag.Client
 }
 
 func New(db *gorm.DB, searchClient *search.Client, explainer *ai.Explainer, sttProvider string) *Server {
-	return &Server{db: db, search: searchClient, explainer: explainer, sttProvider: sttProvider, limiter: authLimiter{entries: make(map[string]attempt)}, mailer: mail.FromEnv(), avatars: storage.FromEnv(), speech: speech.FromEnv(sttProvider), speechSlots: make(chan struct{}, 2)}
+	return &Server{db: db, search: searchClient, explainer: explainer, sttProvider: sttProvider, limiter: authLimiter{entries: make(map[string]attempt)}, mailer: mail.FromEnv(), avatars: storage.FromEnv(), speech: speech.FromEnv(sttProvider), speechSlots: make(chan struct{}, 2), rag: rag.FromEnv()}
 }
 
 func (s *Server) Router() *gin.Engine {
@@ -49,6 +51,7 @@ func (s *Server) Router() *gin.Engine {
 	v1.GET("/admin/users", requireAdmin, s.adminUsers)
 	v1.PATCH("/admin/users/:id", requireAdmin, s.banUser)
 	v1.GET("/admin/audits", requireAdmin, s.adminAudits)
+	v1.GET("/admin/rag/status", requireAdmin, s.ragStatus)
 	v1.POST("/auth/register", s.authRateLimit, s.register)
 	v1.POST("/auth/email-code", s.authRateLimit, s.sendRegistrationCode)
 	v1.GET("/auth/config", func(c *gin.Context) {
@@ -87,7 +90,7 @@ func (s *Server) Router() *gin.Engine {
 		v1.GET("/categories", s.listCategories)
 		v1.POST("/categories", requireAdmin, s.createCategory)
 		v1.GET("/capabilities", func(c *gin.Context) {
-			c.JSON(200, gin.H{"aiConfigured": s.explainer.Configured(), "speechConfigured": s.speech.Configured()})
+			c.JSON(200, gin.H{"aiConfigured": s.explainer.Configured(), "speechConfigured": s.speech.Configured(), "ragConfigured": s.rag.Configured()})
 		})
 		v1.GET("/articles", s.listArticles)
 		v1.POST("/articles", requireAdmin, s.createArticle)
@@ -438,12 +441,16 @@ func (s *Server) explain(c *gin.Context) {
 		return
 	}
 	var article model.Article
-	if err := s.db.Scopes(publicArticles).Preload("Sections", func(db *gorm.DB) *gorm.DB { return db.Order("position ASC") }).
+	if err := s.db.Scopes(publicArticles).Select("id", "title", "slug", "lead").Preload("Sections", preloadEvidence).
 		Where("id = ? AND published = ?", request.ArticleID, true).First(&article).Error; err != nil {
 		respondDB(c, err)
 		return
 	}
-	result, err := s.explainer.Explain(c.Request.Context(), article, request.Question, request.Audience, request.Style)
+	sources, evidence, status := s.retrieveEvidence(c.Request.Context(), article, request.Question)
+	result, err := s.explainer.Explain(c.Request.Context(), sources, request.Question, request.Audience, request.Style)
+	if err == nil {
+		err = decorateEvidence(&result, evidence, status)
+	}
 	if err != nil {
 		fail(c, err)
 		return
