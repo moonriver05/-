@@ -122,6 +122,26 @@ func TestIndexRetrieveIdempotencyAndLiveVisibility(t *testing.T) {
 	t.Setenv("ARK_BASE_URL", server.URL)
 	t.Setenv("CHROMA_URL", server.URL)
 	c := FromEnv()
+	if err := c.IndexArticle(context.Background(), db, 1000, b.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || embeddingCalls != 1 {
+		t.Fatal("targeted pass must only index the chosen article")
+	}
+	if err := c.IndexArticle(context.Background(), db, 1000, b.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	if embeddingCalls != 1 {
+		t.Fatal("targeted rerun incurred embedding charges")
+	}
+	for _, privateID := range []uint{3, 4, 5, 6, 999} {
+		if err := c.IndexArticle(context.Background(), db, 1000, privateID, nil); err == nil {
+			t.Fatalf("article %d must not be indexed", privateID)
+		}
+	}
+	if embeddingCalls != 1 {
+		t.Fatal("private/hidden/deleted article incurred embedding charges")
+	}
 	if err := c.Index(context.Background(), db, 1000, nil); err != nil {
 		t.Fatal(err)
 	}

@@ -69,6 +69,36 @@ free -h
 
 观察建库和实际问答占用，确认没有 OOM/明显交换抖动，再逐步用 `-limit 2000` 扩大范围。不要只凭空库 32MiB 就认定全部知识库够用。
 
+### 只补建一篇词条
+
+前 1000 段按章节 ID 排序，只覆盖开头的一部分内容。页面上能读到某篇词条不代表它已经有向量。接口可用但候选匹配距离均大于 0.65 时，不应为了显示命中而直接放宽门槛。
+
+支持 `-article-id` 按词条编号补建。例如当前线上「前向错误更正」编号为 5105，可执行：
+
+```bash
+GOMAXPROCS=1 GOMEMLIMIT=128MiB python3 /opt/mathwiki/scripts/run-rag-indexer.py -article-id 5105 -limit 1000
+```
+
+这里 `-limit 1000` 是这篇词条的处理上限，不会硬凑 1000 段。仅追加该篇真实存在的有效片段，不删除已有 1000 段；重复执行仍会跳过原有向量。词条不存在、未公开或无有效章节会返回明确错误。建库后网站会直接检索新增向量，无需重启后端。
+
+若正在使用最初的 RAG 更新包，先将 `mathwiki-rag-targeted-update.zip` 上传至 `/opt` 并更新建库工具：
+
+```bash
+(
+  set -e
+  unzip -o /opt/mathwiki-rag-targeted-update.zip -d /opt
+  source /etc/profile.d/mathwiki-go.sh
+  cd /opt/mathwiki/backend
+  GOPROXY=https://goproxy.cn,direct GOMAXPROCS=1 GOMEMLIMIT=256MiB CGO_ENABLED=0 \
+    go build -v -p 1 -trimpath -ldflags="-s -w" -o bin/mathwiki-rag-indexer.new ./cmd/rag-indexer
+  chmod 755 bin/mathwiki-rag-indexer.new
+  mv -f bin/mathwiki-rag-indexer.new bin/mathwiki-rag-indexer
+  echo "建库工具更新完成"
+)
+```
+
+此补丁只改建库程序，不需要编译前端或重启 Supervisor。索引后重新提问验证是否命中；如仍无命中，继续检查匹配距离及原文有效性，不直接放宽 0.65 门槛。
+
 ## 4. 重启与验证
 
 在宝塔 Supervisor 中重启 `mathwiki`，浏览器强制刷新。测试与已索引内容相关的问题：页面应显示「正在检索相关知识」以及「知识检索 · N 段证据」，引用可打开原文。

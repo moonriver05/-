@@ -11,6 +11,12 @@ import (
 // limit is the total prefix to index, not an unbounded new batch. Re-running skips
 // identical existing IDs, avoiding duplicate records and repeated embedding fees.
 func (c *Client) Index(ctx context.Context, db *gorm.DB, limit int, progress func(int, int)) error {
+	return c.IndexArticle(ctx, db, limit, 0, progress)
+}
+
+// IndexArticle optionally scopes the bounded index pass to one public article.
+// Existing collection IDs remain intact and identical chunks are still skipped.
+func (c *Client) IndexArticle(ctx context.Context, db *gorm.DB, limit int, articleID uint, progress func(int, int)) error {
 	if !c.Configured() {
 		return errors.New("set RAG_ENABLED=true and ARK_API_KEY before indexing")
 	}
@@ -28,7 +34,11 @@ func (c *Client) Index(ctx context.Context, db *gorm.DB, limit int, progress fun
 	processed, added, lastID := 0, 0, uint(0)
 	for processed < limit {
 		var rows []row
-		if err := selectedRows(db.WithContext(ctx)).Where("sections.id > ?", lastID).Order("sections.id ASC").Limit(20).Scan(&rows).Error; err != nil {
+		query := selectedRows(db.WithContext(ctx)).Where("sections.id > ?", lastID)
+		if articleID > 0 {
+			query = query.Where("sections.article_id = ?", articleID)
+		}
+		if err := query.Order("sections.id ASC").Limit(20).Scan(&rows).Error; err != nil {
 			return err
 		}
 		if len(rows) == 0 {
@@ -94,6 +104,9 @@ func (c *Client) Index(ctx context.Context, db *gorm.DB, limit int, progress fun
 	}
 	if progress != nil {
 		progress(processed, added)
+	}
+	if articleID > 0 && processed == 0 {
+		return errors.New("no indexable public sections for the requested article")
 	}
 	return nil
 }
