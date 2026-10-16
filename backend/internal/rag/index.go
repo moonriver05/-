@@ -17,11 +17,15 @@ func (c *Client) Index(ctx context.Context, db *gorm.DB, limit int, progress fun
 // IndexArticle optionally scopes the bounded index pass to one public article.
 // Existing collection IDs remain intact and identical chunks are still skipped.
 func (c *Client) IndexArticle(ctx context.Context, db *gorm.DB, limit int, articleID uint, progress func(int, int)) error {
+	return c.index(ctx, db, limit, articleID, nil, 10000, progress)
+}
+
+func (c *Client) index(ctx context.Context, db *gorm.DB, limit int, articleID uint, coverageIDs []uint, maxRecords int, progress func(int, int)) error {
 	if !c.Configured() {
 		return errors.New("set RAG_ENABLED=true and ARK_API_KEY before indexing")
 	}
-	if limit < 1 || limit > 10000 {
-		return errors.New("index limit must be between 1 and 10000")
+	if maxRecords < 1 || maxRecords > 100000 || limit < 1 || limit > maxRecords {
+		return errors.New("index limit must be positive and within the record budget (maximum 100000)")
 	}
 	col, err := c.collection(ctx, true)
 	if err != nil {
@@ -35,6 +39,9 @@ func (c *Client) IndexArticle(ctx context.Context, db *gorm.DB, limit int, artic
 	for processed < limit {
 		var rows []row
 		query := selectedRows(db.WithContext(ctx)).Where("sections.id > ?", lastID)
+		if len(coverageIDs) > 0 {
+			query = query.Where("sections.id IN ?", coverageIDs)
+		}
 		if articleID > 0 {
 			query = query.Where("sections.article_id = ?", articleID)
 		}
@@ -47,6 +54,9 @@ func (c *Client) IndexArticle(ctx context.Context, db *gorm.DB, limit int, artic
 		for _, r := range rows {
 			lastID = r.ID
 			parts := chunks(r.Content)
+			if len(coverageIDs) > 0 && len(parts) > 1 {
+				parts = parts[:1]
+			}
 			if len(parts) == 0 {
 				continue
 			}
@@ -74,8 +84,8 @@ func (c *Client) IndexArticle(ctx context.Context, db *gorm.DB, limit int, artic
 				}
 				processed++
 				if !found[ids[i]] {
-					if count >= 10000 {
-						return errors.New("collection reached 10000-record trial cap; evaluate memory before expanding")
+					if count >= maxRecords {
+						return fmt.Errorf("collection reached %d-record budget; evaluate memory before expanding", maxRecords)
 					}
 					vector, err := c.Embed(ctx, r.vectorText(part), false)
 					if err != nil {

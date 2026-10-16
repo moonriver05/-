@@ -122,6 +122,21 @@ func TestIndexRetrieveIdempotencyAndLiveVisibility(t *testing.T) {
 	t.Setenv("ARK_BASE_URL", server.URL)
 	t.Setenv("CHROMA_URL", server.URL)
 	c := FromEnv()
+	if err := c.IndexCoverage(context.Background(), db, 10000, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 2 || embeddingCalls != 2 {
+		t.Fatal("coverage must include both public articles")
+	}
+	if err := c.IndexCoverage(context.Background(), db, 10000, nil); err != nil {
+		t.Fatal(err)
+	}
+	if embeddingCalls != 2 {
+		t.Fatal("coverage rerun incurred embedding charges")
+	}
+	// Reset only this fake service, to retain the independent targeted-pass checks.
+	records = map[string]bool{}
+	embeddingCalls = 0
 	if err := c.IndexArticle(context.Background(), db, 1000, b.ID, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -154,6 +169,12 @@ func TestIndexRetrieveIdempotencyAndLiveVisibility(t *testing.T) {
 	if embeddingCalls != 2 {
 		t.Fatal("rerun incurred embedding charges")
 	}
+	if err := c.IndexAll(context.Background(), db, 10000, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 2 || embeddingCalls != 2 {
+		t.Fatal("full pass must reuse existing vectors")
+	}
 	evidence, status := c.Retrieve(context.Background(), db, a, "定义是什么")
 	if status.Mode != "chroma" || len(evidence) != 2 || evidence[1].ArticleID != b.ID || lastQuery == "" {
 		t.Fatalf("bad retrieval: %+v %+v", status, evidence)
@@ -171,6 +192,41 @@ func TestIndexRetrieveIdempotencyAndLiveVisibility(t *testing.T) {
 	}
 	if err := c.Index(context.Background(), db, 10001, nil); err == nil {
 		t.Fatal("trial cap not enforced")
+	}
+}
+
+func TestEstimateAllChunksAndBudgetPreflight(t *testing.T) {
+	db, a, _ := fixture(t)
+	if err := db.Model(&model.Section{}).Where("id = ?", a.Sections[0].ID).Update("content", strings.Repeat("数", 1200)).Error; err != nil {
+		t.Fatal(err)
+	}
+	extra := model.Article{PageID: 7, Title: "完整覆盖", Slug: "coverage", Published: true, Language: "zh-Hans", ReviewStatus: "approved", Sections: []model.Section{{Content: "\n\t　"}, {Title: "定义", Content: "这是有效正文"}, {Position: 1000001, Content: "模板附录不索引"}}}
+	if err := db.Create(&extra).Error; err != nil {
+		t.Fatal(err)
+	}
+	plan, err := Estimate(context.Background(), db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Articles != 3 || plan.Sections != 3 || plan.Chunks != 4 || len(plan.CoverageSectionIDs) != 3 {
+		t.Fatalf("bad plan: %+v", plan)
+	}
+	if plan.RawVectorMiB != float64(4*1024*4)/(1024*1024) {
+		t.Fatal("incorrect vector estimate")
+	}
+	if plan.CoverageSectionIDs[2] != extra.Sections[1].ID {
+		t.Fatal("coverage selected a whitespace section")
+	}
+	// Budget rejection happens before any embedding, collection creation or writes.
+	t.Setenv("RAG_ENABLED", "true")
+	t.Setenv("ARK_API_KEY", "fake-key")
+	t.Setenv("CHROMA_URL", "http://127.0.0.1:1")
+	c := FromEnv()
+	if err := c.IndexAll(context.Background(), db, 3, nil); err == nil || !strings.Contains(err.Error(), "needs 4 vectors") {
+		t.Fatalf("bad preflight: %v", err)
+	}
+	if err := c.IndexCoverage(context.Background(), db, 2, nil); err == nil || !strings.Contains(err.Error(), "at least 3 vectors") {
+		t.Fatalf("bad coverage budget: %v", err)
 	}
 }
 
