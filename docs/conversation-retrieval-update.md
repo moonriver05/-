@@ -11,12 +11,14 @@
 
 ## 部署
 
-将 `mathwiki-conversation-rag-update.zip` 上传到服务器 `/opt`，执行：
+使用 `mathwiki-conversation-rag-complete.zip`，包含同一提交的完整后端源码和依赖清单，避免服务器已有 `plan.go` 与旧版 `index.go` 混用。旧增量包不再用于部署。
+
+将该完整包上传到服务器 `/opt`，执行：
 
 ```bash
 (
 set -e
-unzip -o /opt/mathwiki-conversation-rag-update.zip -d /opt
+unzip -o /opt/mathwiki-conversation-rag-complete.zip -d /opt
 source /etc/profile.d/mathwiki-go.sh
 cd /opt/mathwiki/backend
 GOPROXY=https://goproxy.cn,direct GOMAXPROCS=1 GOMEMLIMIT=256MiB CGO_ENABLED=0 \
@@ -27,6 +29,8 @@ mv -f bin/mathwiki-server.new bin/mathwiki-server
 ```
 
 编译成功后，在宝塔 Supervisor 重启 `mathwiki`。这一步才会让运行中的后端使用新代码。
+
+如果遇到 `c.index undefined`，说明编译目录内的 RAG 源码版本不一致，并非向量数据损坏。解压上述完整包后重新编译即可。不删除服务器现有源码目录、配置、二进制或数据卷；包内不包含 `.env`、数据库、向量数据或 `backend/bin`。构建失败时 `set -e` 会在替换原程序之前退出，不要提前重启服务。
 
 ## 网页验收
 
