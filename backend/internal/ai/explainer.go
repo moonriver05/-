@@ -86,7 +86,7 @@ func (e *Explainer) Explain(ctx context.Context, article model.Article, question
 %s
 
 输出与待核验解释完全相同字段的严格 JSON。checks 必须列出具体完成的核验，confidence 对证据覆盖程度评分。`, sources, draft)
-	verifyPrompt += "\n" + teachingGuidance(audience, style)
+	verifyPrompt += "\n本轮用户问题与表达要求：\n" + question + "\n" + teachingGuidance(audience, style)
 	verified, err := e.complete(ctx, "你是严谨的中文数学内容核验员，不允许保留无法由给定证据支持的结论。", verifyPrompt)
 	if err != nil {
 		return Explanation{}, err

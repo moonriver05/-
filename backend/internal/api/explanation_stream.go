@@ -63,7 +63,7 @@ func (s *Server) explainStream(c *gin.Context) {
 				return
 			}
 		}
-		sources, evidence, status = s.retrieveEvidence(c.Request.Context(), article, request.Question)
+		sources, evidence, status = s.retrieveEvidence(c.Request.Context(), article, retrievalQuestion(request.Question, request.History))
 	}
 	result, err := s.explainer.Stream(c.Request.Context(), sources, strings.TrimSpace(request.Question), request.Audience, request.Style, request.History, emit)
 	if err != nil {
