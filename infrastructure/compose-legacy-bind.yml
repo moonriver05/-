@@ -1,0 +1,8 @@
+# Existing E:/MathWikiData/MySQL users must keep their original data mount.
+# Do not point a new container at an existing database without a verified backup.
+services:
+  mysql:
+    volumes:
+      - type: bind
+        source: ${MATHWIKI_DATA_ROOT:?Set your existing data root}/mysql
+        target: /var/lib/mysql

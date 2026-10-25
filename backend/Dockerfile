@@ -6,7 +6,7 @@ COPY . .
 RUN CGO_ENABLED=0 go build -o /out/mathwiki ./cmd/server
 
 FROM alpine:3.20
-RUN adduser -D -u 10001 app
+RUN apk add --no-cache ca-certificates && adduser -D -u 10001 app
 USER app
 COPY --from=build /out/mathwiki /usr/local/bin/mathwiki
 EXPOSE 8080

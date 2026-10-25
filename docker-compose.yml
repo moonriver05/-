@@ -19,18 +19,20 @@ services:
       COS_SECRET_KEY: ${COS_SECRET_KEY:-}
       COS_SESSION_TOKEN: ${COS_SESSION_TOKEN:-}
       DATABASE_DRIVER: mysql
-      MYSQL_DSN: mathwiki:mathwiki@tcp(mysql:3306)/mathwiki?charset=utf8mb4&parseTime=True&loc=Local
+      MYSQL_DSN: mathwiki:${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}@tcp(mysql:3306)/mathwiki?charset=utf8mb4&parseTime=True&loc=Local
       ELASTICSEARCH_ENABLED: ${ELASTICSEARCH_ENABLED:-false}
       ELASTICSEARCH_URL: http://elasticsearch:9200
       ELASTICSEARCH_INDEX: mathwiki_articles
       LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-deepseek-flash}
+      AI_MAX_CONCURRENT: ${AI_MAX_CONCURRENT:-2}
+      AI_REQUESTS_PER_MINUTE: ${AI_REQUESTS_PER_MINUTE:-6}
       RAG_ENABLED: ${RAG_ENABLED:-false}
       ARK_API_KEY: ${ARK_API_KEY:-}
       ARK_BASE_URL: ${ARK_BASE_URL:-https://ark.cn-beijing.volces.com/api/v3}
       ARK_EMBEDDING_MODEL: ${ARK_EMBEDDING_MODEL:-doubao-embedding-vision-251215}
-      CHROMA_URL: ${CHROMA_URL:-http://chroma:8000}
+      CHROMA_URL: ${CHROMA_DOCKER_URL:-http://chroma:8000}
       CHROMA_COLLECTION: ${CHROMA_COLLECTION:-mathwiki_rag_1024_v1}
       STT_PROVIDER: ${STT_PROVIDER:-doubao}
       DOUBAO_SPEECH_API_KEY: ${DOUBAO_SPEECH_API_KEY:-}
@@ -42,7 +44,7 @@ services:
       SMTP_USERNAME: ${SMTP_USERNAME:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-}
-    ports: ["8080:8080"]
+    ports: ["127.0.0.1:8080:8080"]
     depends_on:
       mysql:
         condition: service_healthy
@@ -52,16 +54,13 @@ services:
     environment:
       MYSQL_DATABASE: mathwiki
       MYSQL_USER: mathwiki
-      MYSQL_PASSWORD: mathwiki
-      MYSQL_ROOT_PASSWORD: root
-    ports: ["3306:3306"]
-    volumes:
-      - type: bind
-        source: ${MATHWIKI_DATA_ROOT:-E:/MathWikiData}/mysql
-        target: /var/lib/mysql
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+    ports: ["127.0.0.1:3306:3306"]
+    volumes: ["mysql-data:/var/lib/mysql"]
     command: ["mysqld", "--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci"]
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      test: ["CMD-SHELL", 'MYSQL_PWD="$$MYSQL_ROOT_PASSWORD" mysqladmin ping -h localhost -uroot --silent']
       interval: 5s
       timeout: 3s
       retries: 20
@@ -69,7 +68,7 @@ services:
   chroma:
     profiles: [rag]
     image: ${CHROMA_IMAGE:-chromadb/chroma@sha256:1e0b73a187a28757c572acba508c46f48c9e8b0acaf5c20e6d95cdedce1acdf6}
-    restart: "no"
+    restart: unless-stopped
     mem_limit: 384m
     memswap_limit: 384m
     cpus: 1
@@ -86,11 +85,12 @@ services:
       discovery.type: single-node
       xpack.security.enabled: "false"
       ES_JAVA_OPTS: -Xms768m -Xmx768m
-    ports: ["9200:9200"]
+    ports: ["127.0.0.1:9200:9200"]
     volumes:
       - type: bind
         source: ${MATHWIKI_DATA_ROOT:-E:/MathWikiData}/elasticsearch
         target: /usr/share/elasticsearch/data
 
 volumes:
+  mysql-data:
   chroma-data:

@@ -26,7 +26,7 @@ func Load() Config {
 		DatabaseDriver:       value("DATABASE_DRIVER", "mysql"),
 		MySQLDSN:             value("MYSQL_DSN", "mathwiki:mathwiki@tcp(127.0.0.1:3306)/mathwiki?charset=utf8mb4&parseTime=True&loc=Local"),
 		SQLitePath:           value("SQLITE_PATH", "mathwiki-dev.db"),
-		ElasticsearchEnabled: boolean("ELASTICSEARCH_ENABLED", true),
+		ElasticsearchEnabled: boolean("ELASTICSEARCH_ENABLED", false),
 		ElasticsearchURL:     value("ELASTICSEARCH_URL", "http://127.0.0.1:9200"),
 		ElasticsearchIndex:   value("ELASTICSEARCH_INDEX", "mathwiki_articles"),
 		LLMBaseURL:           value("LLM_BASE_URL", "https://api.deepseek.com"),

@@ -34,10 +34,11 @@ type Server struct {
 	speech      *speech.Client
 	speechSlots chan struct{}
 	rag         *rag.Client
+	aiGate      *aiGate
 }
 
 func New(db *gorm.DB, searchClient *search.Client, explainer *ai.Explainer, sttProvider string) *Server {
-	return &Server{db: db, search: searchClient, explainer: explainer, sttProvider: sttProvider, limiter: authLimiter{entries: make(map[string]attempt)}, mailer: mail.FromEnv(), avatars: storage.FromEnv(), speech: speech.FromEnv(sttProvider), speechSlots: make(chan struct{}, 2), rag: rag.FromEnv()}
+	return &Server{db: db, search: searchClient, explainer: explainer, sttProvider: sttProvider, limiter: authLimiter{entries: make(map[string]attempt)}, mailer: mail.FromEnv(), avatars: storage.FromEnv(), speech: speech.FromEnv(sttProvider), speechSlots: make(chan struct{}, 2), rag: rag.FromEnv(), aiGate: newAIGate()}
 }
 
 func (s *Server) Router() *gin.Engine {
@@ -104,8 +105,8 @@ func (s *Server) Router() *gin.Engine {
 		v1.GET("/annotations/:id/comments", s.listComments)
 		v1.POST("/annotations/:id/like", requireLogin, s.setAnnotationLike)
 		v1.DELETE("/annotations/:id/like", requireLogin, s.setAnnotationLike)
-		v1.POST("/explanations", requireLogin, s.explain)
-		v1.POST("/explanations/stream", requireLogin, s.explainStream)
+		v1.POST("/explanations", requireLogin, s.aiGate.admit, s.explain)
+		v1.POST("/explanations/stream", requireLogin, s.aiGate.admit, s.explainStream)
 		v1.POST("/feedback", requireLogin, s.createFeedback)
 		v1.POST("/speech/transcribe", requireLogin, s.transcribe)
 		v1.GET("/speech/stream", requireLogin, s.speechRateLimit, s.speechStream)

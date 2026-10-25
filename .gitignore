@@ -43,3 +43,10 @@ node_modules/
 data/
 backups/
 uploads/
+
+# Reproducible local PDF copies and page previews; canonical PDF lives in docs/submission.
+output/
+tmp/
+
+# Speaking script is a private local deliverable, not public repository material.
+docs/submission/speech.md
