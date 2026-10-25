@@ -51,6 +51,7 @@ func (s *Server) Router() *gin.Engine {
 	v1.POST("/auth/reset-password", s.authRateLimit, s.resetPassword)
 	v1.GET("/admin/users", requireAdmin, s.adminUsers)
 	v1.PATCH("/admin/users/:id", requireAdmin, s.banUser)
+	v1.PATCH("/admin/users/:id/role", requireAdmin, s.changeUserRole)
 	v1.GET("/admin/audits", requireAdmin, s.adminAudits)
 	v1.GET("/admin/rag/status", requireAdmin, s.ragStatus)
 	v1.POST("/auth/register", s.authRateLimit, s.register)

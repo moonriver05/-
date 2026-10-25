@@ -101,6 +101,7 @@ async function transcribeAudio(audio: Blob): Promise<{ text: string; provider: s
 export const api = {
   adminUsers: (page = 1, q = '') => request<{ items: User[]; total: number }>(`/admin/users?${new URLSearchParams({ page: String(page), q })}`),
   banUser: (id: number, banned: boolean, reason: string) => request(`/admin/users/${id}`, { method: 'PATCH', body: JSON.stringify({ banned, reason }) }),
+  setUserRole: (id: number, role: 'admin' | 'learner', reason: string) => request<{ ok: boolean; changed: boolean; message: string }>(`/admin/users/${id}/role`, { method: 'PATCH', body: JSON.stringify({ role, reason }) }),
   adminAudits: (page = 1) => request<{ items: { id: number; userId: number; action: string; target: string; reason: string; status: number; createdAt: string }[]; total: number }>(`/admin/audits?page=${page}`),
   sendResetCode: (email: string) => request<{ message: string; retryAfter: number; expiresIn: number }>('/auth/reset-code', { method: 'POST', body: JSON.stringify({ email }) }, 20000),
   resetPassword: (email: string, code: string, password: string) => request<{ message: string }>('/auth/reset-password', { method: 'POST', body: JSON.stringify({ email, code, password }) }),

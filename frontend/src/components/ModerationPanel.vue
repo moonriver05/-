@@ -6,7 +6,7 @@ import WikiContent from './WikiContent.vue'
 import AccountManagement from './AccountManagement.vue'
 import { articleReviewLabel, feedbackKindLabel, feedbackStatusLabel, type ModerationSection } from '../moderation'
 import type { Annotation, Article, FeedbackItem } from '../types'
-const props = withDefaults(defineProps<{ initialSection?: ModerationSection; initialStatus?: string; initialQuery?: string }>(), { initialSection: 'articles', initialStatus: 'pending', initialQuery: '' })
+const props = withDefaults(defineProps<{ initialSection?: ModerationSection; initialStatus?: string; initialQuery?: string; currentUserId?: number }>(), { initialSection: 'articles', initialStatus: 'pending', initialQuery: '' })
 const emit = defineEmits<{ close: []; changed: [section: ModerationSection] }>()
 const section = ref<ModerationSection>(props.initialSection), status = ref(props.initialStatus), query = ref(props.initialQuery)
 const notes = ref<Annotation[]>([]), articles = ref<Article[]>([]), feedback = ref<FeedbackItem[]>([])
@@ -72,7 +72,7 @@ async function showPreview(id: number) {
       <div class="community-heading"><h2 id="moderation-title">审核管理</h2><button class="text-btn" :disabled="busy || previewBusy" @click="close">关闭</button></div>
       <div class="management-sections" aria-label="审核分类"><button v-for="tab in [{ key: 'articles', name: '条目审核' }, { key: 'annotations', name: '批注审核' }, { key: 'feedback', name: '纠错反馈' }]" :key="tab.key" :aria-pressed="managementMode === 'content' && section === tab.key" :class="{ active: managementMode === 'content' && section === tab.key }" :disabled="busy || previewBusy" @click="switchSection(tab.key as ModerationSection)">{{ tab.name }}</button></div>
       <div class="management-sections" aria-label="账户管理分类"><button :class="{ active: managementMode === 'users' }" :aria-pressed="managementMode === 'users'" :disabled="busy || previewBusy" @click="managementMode = 'users'">用户管理</button><button :class="{ active: managementMode === 'audits' }" :aria-pressed="managementMode === 'audits'" :disabled="busy || previewBusy" @click="managementMode = 'audits'">操作日志</button></div>
-      <AccountManagement v-if="managementMode !== 'content'" :key="managementMode" :mode="managementMode" />
+      <AccountManagement v-if="managementMode !== 'content'" :key="managementMode" :mode="managementMode" :current-user-id="currentUserId" />
       <template v-else>
       <p class="muted management-description">{{ section === 'articles' ? '新建条目通过后公开。导入内容可继续阅读，人工核验后再标记通过。删除可在回收站恢复。' : section === 'annotations' ? '批注通过后公开显示。删除会同时隐藏该批注下的回复。' : '查看用户的补充、纠错与解释反馈。处理说明会显示给提交者；标记已处理不会自动修改正文。' }}</p>
       <form v-if="section === 'articles'" class="management-search" @submit.prevent="page = 1; load()"><input v-model="query" aria-label="搜索审核条目标题" placeholder="按条目标题搜索" :disabled="busy || previewBusy" /><button class="text-btn" :disabled="busy || previewBusy">搜索</button></form>

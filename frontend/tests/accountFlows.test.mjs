@@ -59,3 +59,32 @@ test('administrator UI requires a reason and refreshes ban state', async () => {
     assert.equal([...document.querySelectorAll('button')].filter(el => el.textContent === '封禁账户').length, 1)
   } finally { app.unmount(); Object.assign(api, saved) }
 })
+
+test('role assignment needs a reason and confirmation, hides self and banned targets, then refreshes', async () => {
+  const saved = { ...api }; const calls = []; let role = 'learner'
+  const prompt = window.prompt, confirm = window.confirm
+  api.adminUsers = async () => ({ items: [
+    { id: 2, username: 'helper', name: '协助者', role },
+    { id: 1, username: 'admin', name: '自己', role: 'admin' },
+    { id: 3, username: 'banned', name: '已封禁者', role: 'learner', banned: true },
+  ], total: 3 })
+  api.setUserRole = async (...args) => { calls.push(args); role = args[1]; return { ok: true, changed: true, message: '成功' } }
+  const app = createApp(AccountManagement, { mode: 'users', currentUserId: 1 }); app.mount('#app')
+  try {
+    await flush()
+    assert.equal([...document.querySelectorAll('button')].filter(b => b.textContent === '授予管理员').length, 1)
+    assert.equal(button('撤销管理员'), undefined)
+    window.prompt = () => ' '; window.confirm = () => true
+    button('授予管理员').click(); await flush(); assert.equal(calls.length, 0)
+    window.prompt = () => '协助审核'; window.confirm = () => false
+    button('授予管理员').click(); await flush(); assert.equal(calls.length, 0)
+    window.confirm = () => true
+    button('授予管理员').click(); await flush()
+    assert.deepEqual(calls[0], [2, 'admin', '协助审核'])
+    assert.match(document.body.textContent, /重新登录/)
+    assert.equal([...document.querySelectorAll('button')].filter(b => b.textContent === '撤销管理员').length, 1)
+    button('撤销管理员').click(); await flush()
+    assert.deepEqual(calls[1], [2, 'learner', '协助审核'])
+    assert.ok(button('授予管理员'))
+  } finally { app.unmount(); Object.assign(api, saved); window.prompt = prompt; window.confirm = confirm }
+})

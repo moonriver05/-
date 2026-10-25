@@ -718,7 +718,7 @@ onUnmounted(() => {
   <div class="app-shell" :class="{ 'focus-mode': focusMode, dark: darkMode, ['mobile-' + mobileView]: true }" @click="menu = null">
     <AuthPage v-if="authOpen" @close="authOpen = false" @authenticated="accountChanged" />
     <ProfilePage v-if="profileOpen && user" :user="user" @close="profileOpen = false" @updated="profileUpdated" />
-    <ModerationPanel v-if="moderationOpen && user?.role === 'admin'" v-bind="moderationOptions" @close="moderationOpen = false" @changed="moderationChanged" />
+    <ModerationPanel v-if="moderationOpen && user?.role === 'admin'" v-bind="moderationOptions" :current-user-id="user.id" @close="moderationOpen = false" @changed="moderationChanged" />
     <MyFeedbackPanel v-if="feedbackOpen && user" @close="feedbackOpen = false" />
     <header class="topbar" :inert="authOpen || moderationOpen || profileOpen || feedbackOpen">
       <div class="brand-block">
