@@ -40,20 +40,24 @@ type articleResponse struct {
 }
 
 type annotationResponse struct {
-	UserID    uint      `json:"userId"`
-	Status    string    `json:"status"`
-	ID        uint      `json:"id"`
-	ArticleID uint      `json:"articleId"`
-	SectionID *uint     `json:"sectionId,omitempty"`
-	Quote     string    `json:"quote"`
-	Body      string    `json:"body"`
-	Author    string    `json:"author"`
-	Avatar    string    `json:"avatar,omitempty"`
-	Color     string    `json:"color"`
-	CreatedAt time.Time `json:"createdAt"`
-	Replies   int       `json:"replies"`
-	Likes     int       `json:"likes"`
-	Liked     bool      `json:"liked"`
+	UserID      uint      `json:"userId"`
+	Status      string    `json:"status"`
+	ID          uint      `json:"id"`
+	ArticleID   uint      `json:"articleId"`
+	SectionID   *uint     `json:"sectionId,omitempty"`
+	Quote       string    `json:"quote"`
+	Prefix      string    `json:"prefix,omitempty"`
+	Suffix      string    `json:"suffix,omitempty"`
+	StartOffset int       `json:"startOffset"`
+	EndOffset   int       `json:"endOffset"`
+	Body        string    `json:"body"`
+	Author      string    `json:"author"`
+	Avatar      string    `json:"avatar,omitempty"`
+	Color       string    `json:"color"`
+	CreatedAt   time.Time `json:"createdAt"`
+	Replies     int       `json:"replies"`
+	Likes       int       `json:"likes"`
+	Liked       bool      `json:"liked"`
 }
 
 func toArticleResponse(article model.Article, saved bool) articleResponse {
@@ -91,6 +95,7 @@ func toAnnotationResponse(item model.Annotation) annotationResponse {
 	return annotationResponse{
 		UserID: item.UserID, Status: item.Status,
 		ID: item.ID, ArticleID: item.ArticleID, SectionID: item.SectionID, Quote: item.Quote,
+		Prefix: item.Prefix, Suffix: item.Suffix, StartOffset: item.StartOffset, EndOffset: item.EndOffset,
 		Body: item.Body, Author: author, Avatar: item.User.Avatar, Color: item.Color,
 		CreatedAt: item.CreatedAt, Replies: len(item.Comments), Likes: item.Likes,
 	}

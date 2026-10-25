@@ -140,6 +140,22 @@ svg { display: block; fill: none; stroke: currentColor; stroke-width: 1.45; stro
 .info-panel h3{font:600 16px "Noto Serif SC",serif;margin:0 0 20px}.info-panel dl{display:grid;grid-template-columns:65px 1fr;gap:13px 7px;margin:0;font-size:10px}.info-panel dt{color:#999}.info-panel dd{margin:0}.tag{display:inline-block;padding:3px 6px;border-radius:3px;background:#eae8e4;margin:0 4px 4px 0;font-size:8px}.quality-box{align-items:flex-start;gap:9px;background:#edf3eb;border:1px solid #d7e4d4;border-radius:6px;padding:11px;margin-top:25px;color:#587354}.quality-box strong{font-size:9px}.quality-box p{color:#748370;font-size:8px;line-height:1.5;margin:4px 0}.empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;color:#aaa;min-height:170px;text-align:center}.empty-state strong{font-size:11px;color:#777}.empty-state small{font-size:9px}
 
 /* 深色模式：延续 Zotero 的低干扰工作台感，正文采用暖灰而非纯黑白。 */
+.annotation-highlight{background:#ffe4a0;color:inherit;border-bottom:2px solid #c28a25;border-radius:2px;box-decoration-break:clone;-webkit-box-decoration-break:clone;scroll-margin:100px 0;cursor:pointer}
+.annotation-highlight.is-active,.annotation-highlight:focus-visible{background:#ffc75c;outline:2px solid #956009;outline-offset:2px}
+.annotation-highlight.is-draft{background:#fce5ad;border-bottom-style:dashed;cursor:text}
+.dark .annotation-highlight{background:#675122;color:#fff4d6;border-bottom-color:#d8aa46}
+.dark .annotation-highlight.is-active,.dark .annotation-highlight:focus-visible{background:#91682b;color:#fff;outline-color:#f3cb71}
+.dark .annotation-highlight a{color:#d3eaff}
+.note-card.is-selected,.dark .note-card.is-selected{border-color:#bd8e38;box-shadow:0 0 0 2px #bd8e3833}
+button.quote-strip{border:0;border-left:3px solid;width:100%;text-align:left;cursor:pointer;font:11px/1.6 "Noto Serif SC",serif;align-items:flex-start;flex-wrap:wrap}
+button.quote-strip>span:nth-child(2){flex:1;min-width:0;overflow-wrap:anywhere}
+button.quote-strip small{width:100%;text-align:right;font:10px/1.4 sans-serif;color:#97651c}
+button.quote-strip:focus-visible{outline:2px solid #bd8e38;outline-offset:2px}
+.dark button.quote-strip small{color:#e1b865}
+.annotation-hint{font-size:11px;line-height:1.6;color:#777;margin:0 0 12px}
+.dark .annotation-hint{color:#b6b2a8}
+.wiki-content .plain-section{white-space:pre-wrap;text-align:left}
+@media(max-width:850px){button.quote-strip{font-size:14px;min-height:44px}button.quote-strip small,.annotation-hint{font-size:12px}}
 .app-shell.dark {
   color-scheme: dark;
   --red: #db6259;

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
@@ -545,20 +546,38 @@ func quoteBelongsToArticle(article model.Article, quote string, sectionID *uint)
 	if sectionID != nil {
 		for _, section := range article.Sections {
 			if section.ID == *sectionID {
-				return strings.Contains(section.Content, quote)
+				return containsAnnotationQuote(section.Content, quote)
 			}
 		}
 		return false
 	}
-	if strings.Contains(article.PlainText, quote) || strings.Contains(article.Lead, quote) {
+	if containsAnnotationQuote(article.PlainText, quote) || containsAnnotationQuote(article.Lead, quote) {
 		return true
 	}
 	for _, section := range article.Sections {
-		if strings.Contains(section.Content, quote) {
+		if containsAnnotationQuote(section.Content, quote) {
 			return true
 		}
 	}
 	return false
+}
+
+// HTML selections may omit paragraph separators or use non-breaking spaces.
+// Only ignore whitespace; punctuation and actual words must still match.
+func containsAnnotationQuote(content, quote string) bool {
+	if strings.Contains(content, quote) {
+		return true
+	}
+	compact := func(value string) string {
+		return strings.Map(func(r rune) rune {
+			if unicode.IsSpace(r) {
+				return -1
+			}
+			return r
+		}, value)
+	}
+	needle := compact(quote)
+	return needle != "" && strings.Contains(compact(content), needle)
 }
 
 func parseID(value string) (uint, bool) {

@@ -26,6 +26,11 @@ export type Annotation = {
   status?: 'pending' | 'visible' | 'rejected'
   id: number
   articleId: number
+  sectionId?: number
+  prefix?: string
+  suffix?: string
+  startOffset?: number
+  endOffset?: number
   quote: string
   body: string
   author: string

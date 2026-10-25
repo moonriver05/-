@@ -31,3 +31,23 @@ func TestQuoteBelongsToRequestedSection(t *testing.T) {
 		t.Fatal("quote from a different section must be rejected")
 	}
 }
+
+func TestAnnotationResponsePreservesTextAnchor(t *testing.T) {
+	sectionID := uint(11)
+	result := toAnnotationResponse(model.Annotation{
+		ID: 4, SectionID: &sectionID, Quote: "相同句子", Prefix: "第二处：", Suffix: "下一句",
+		StartOffset: 17, EndOffset: 21,
+	})
+	if result.SectionID == nil || *result.SectionID != sectionID || result.Prefix != "第二处：" || result.Suffix != "下一句" || result.StartOffset != 17 || result.EndOffset != 21 {
+		t.Fatalf("annotation anchor was lost: %#v", result)
+	}
+}
+
+func TestAnnotationQuoteAllowsRenderedWhitespaceOnly(t *testing.T) {
+	if !containsAnnotationQuote("第一段。\n第二段。", "第一段。第二段。") || !containsAnnotationQuote("a b", "a\u00a0b") {
+		t.Fatal("HTML paragraph/space differences should not reject a real selection")
+	}
+	if containsAnnotationQuote("边权必须非负。", "边权可以为负。") || containsAnnotationQuote("无空白", " \n ") {
+		t.Fatal("changed words and whitespace-only selections must be rejected")
+	}
+}

@@ -4,6 +4,10 @@ import { readExplanationStream, type StreamEvent } from './explanationStream.ts'
 type AnnotationInput = {
   articleId: number
   sectionId?: number
+  prefix?: string
+  suffix?: string
+  startOffset?: number
+  endOffset?: number
   quote: string
   body: string
   color?: string

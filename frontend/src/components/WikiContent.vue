@@ -3,12 +3,28 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { imageMode, loadMediaManifest, safeWikiHTML, type MediaEntry } from '../wikiMedia'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
+import { paintHighlights, type Highlight } from '../annotationHighlights'
 
-const props = defineProps<{ html: string }>()
+const props = defineProps<{ html?: string; text?: string; annotations?: Highlight[]; activeAnnotationId?: number | null }>()
+const emit = defineEmits<{ annotationClick: [ids: number[]] }>()
 const root = ref<HTMLElement>()
 const manifest = ref<Record<string, MediaEntry>>({})
-const mediaReady = ref(!import.meta.env.VITE_MEDIA_MANIFEST_URL)
-const clean = computed(() => safeWikiHTML(props.html, manifest.value, mediaReady.value ? imageMode : 'off'))
+const mediaReady = ref(!import.meta.env?.VITE_MEDIA_MANIFEST_URL)
+const clean = computed(() => safeWikiHTML(props.html || `<p class="plain-section">${(props.text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`, manifest.value, mediaReady.value ? imageMode : 'off'))
+
+function highlight() {
+  if (root.value) paintHighlights(root.value, props.annotations ?? [], props.activeAnnotationId)
+}
+
+function activateAnnotation(event: MouseEvent | KeyboardEvent) {
+  if ('key' in event && event.key !== 'Enter' && event.key !== ' ') return
+  const mark = (event.target as Element)?.closest<HTMLElement>('mark[data-annotation-ids]')
+  if (!mark || !root.value?.contains(mark) || window.getSelection()?.toString()) return
+  const ids = (mark.dataset.annotationIds ?? '').split(' ').map(Number).filter(id => id > 0)
+  if (!ids.length) return
+  event.preventDefault()
+  emit('annotationClick', ids)
+}
 
 async function typeset() {
   await nextTick()
@@ -46,6 +62,7 @@ async function typeset() {
       element.title = '此公式暂未成功排版，保留原始 TeX；可对照原词条。'
     }
   }
+  highlight()
 }
 
 function assetError(event: Event) {
@@ -55,8 +72,9 @@ function assetError(event: Event) {
 onMounted(typeset)
 onMounted(async () => { manifest.value = await loadMediaManifest(); mediaReady.value = true })
 watch(clean, typeset, { flush: 'post' })
+watch(() => [props.annotations, props.activeAnnotationId], highlight, { flush: 'post', deep: true })
 </script>
 
 <template>
-  <div ref="root" class="wiki-content" @error.capture="assetError" v-html="clean" />
+  <div ref="root" class="wiki-content" @error.capture="assetError" @click="activateAnnotation" @keydown="activateAnnotation" v-html="clean" />
 </template>

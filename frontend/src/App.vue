@@ -14,7 +14,8 @@ import ProfilePage from './components/ProfilePage.vue'
 import UserAvatar from './components/UserAvatar.vue'
 import type { User, Explanation } from './types'
 import { articles as mockArticles, seedAnnotations } from './mock'
-import type { Annotation, Article, Stats, Category, Comment, Capabilities } from './types'
+import type { Annotation, Article, Section, Stats, Category, Comment, Capabilities } from './types'
+import { anchorAt, captureAnchor, locateQuote, type TextAnchor, type Highlight } from './annotationHighlights'
 
 type PanelTab = 'ai' | 'notes' | 'info'
 type Toast = { text: string; action?: string }
@@ -83,6 +84,8 @@ function followConversation(force = false) {
 }
 const annotations = ref<Annotation[]>([...seedAnnotations])
 const selectedQuote = ref('')
+const selectedAnchor = ref<(TextAnchor & { sectionId: number }) | null>(null)
+const activeAnnotationId = ref<number | null>(null)
 const selectionPos = ref({ x: 0, y: 0 })
 const composerOpen = ref(false)
 const annotationText = ref('')
@@ -120,7 +123,7 @@ const feedbackText = ref('')
 const feedbackArticleId = ref(0)
 const articleDraft = reactive({ title: '', category: '数学基础', kind: '概念', difficulty: '入门', content: '' })
 const noteSort = ref('最相关')
-const noteFilter = ref('')
+const noteFilter = ref<number | null>(null)
 const expandedNotes = ref<number[]>([])
 const commentLists = ref<Record<number, Comment[]>>({})
 const replyDrafts = ref<Record<number, string>>({})
@@ -167,6 +170,8 @@ function profileUpdated(nextUser: User) {
 const accountBusy = ref(false)
 function requestLogin() { authOpen.value = true }
 function sessionExpired() {
+  cancelAnnotation()
+  activeAnnotationId.value = null
   cancelVoice()
   clearConversation()
   feedbackOpen.value = false
@@ -178,6 +183,8 @@ function sessionExpired() {
 function requireAccount() { if (user.value) return true; requestLogin(); return false }
 function canDelete(owner?: number) { return !!user.value && (user.value.role === 'admin' || user.value.id === owner) }
 async function accountChanged(nextUser: User | null) {
+  cancelAnnotation()
+  activeAnnotationId.value = null
   cancelVoice()
   clearConversation()
   feedbackOpen.value = false
@@ -239,8 +246,26 @@ const filteredArticles = computed(() => {
 
 const readerVisible = computed(() => hasSelectedArticle.value)
 const articleAnnotations = computed(() => annotations.value.filter(a => a.articleId === activeArticle.value.id))
+// Legacy notes have no section ID. Only attach them when exactly one section
+// contains their quote, rather than marking identical sentences everywhere.
+const sectionNotes = computed(() => {
+  const result = new Map<number, Annotation[]>()
+  for (const note of articleAnnotations.value) {
+    const sections = activeArticle.value.sections.filter(section => note.sectionId != null
+      ? section.id === note.sectionId : section.content.includes(note.quote))
+    if (sections.length !== 1) continue
+    const id = sections[0]!.id
+    result.set(id, [...(result.get(id) ?? []), note])
+  }
+  return result
+})
+function highlightsFor(sectionId: number): Highlight[] {
+  const notes: Highlight[] = sectionNotes.value.get(sectionId) ?? []
+  return composerOpen.value && selectedAnchor.value?.sectionId === sectionId
+    ? [...notes, { ...selectedAnchor.value, id: -1 }] : notes
+}
 const visibleNotes = computed(() => {
-  const notes = articleAnnotations.value.filter(note => !noteFilter.value || noteFilter.value.includes(note.quote))
+  const notes = noteFilter.value == null ? articleAnnotations.value : sectionNotes.value.get(noteFilter.value) ?? []
   return [...notes].sort((a, b) => noteSort.value === '最新' ? new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime() : b.likes - a.likes)
 })
 
@@ -285,7 +310,9 @@ async function selectArticle(article: Article, showReader = true) {
   activeArticle.value = article
   detailError.value = ''
   annotations.value = []
-  noteFilter.value = ''
+  noteFilter.value = null
+  activeAnnotationId.value = null
+  selectedAnchor.value = null
   expandedNotes.value = []
   explainPrompt.value = `请解释${article.title}的核心思想`
   selectedQuote.value = ''
@@ -388,22 +415,31 @@ watch([query, activeCollection, activeType, sortMode, searchSortMode], () => {
 })
 
 function handleSelection() {
+  if (composerOpen.value) return
   const selection = window.getSelection()
   const text = selection?.toString().trim() || ''
-  if (!text || text.length < 2 || text.length > 240) {
-    if (!composerOpen.value) selectedQuote.value = ''
-    return
-  }
+  selectedQuote.value = ''
+  selectedAnchor.value = null
+  if (!selection?.rangeCount || [...text].length < 2 || [...text].length > 240) return
   const range = selection!.getRangeAt(0)
-  if (!(range.commonAncestorContainer.parentElement?.closest('.article-body'))) return
+  const start = range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer as Element : range.startContainer.parentElement
+  const root = start?.closest<HTMLElement>('.article-body section .wiki-content')
+  const sectionId = Number(root?.closest<HTMLElement>('[data-section]')?.dataset.section)
+  if (!root || !sectionId) return
+  const anchor = captureAnchor(root, range)
+  if (!anchor) return
   const rect = range.getBoundingClientRect()
-  selectedQuote.value = text
+  selectedAnchor.value = { ...anchor, sectionId }
+  selectedQuote.value = anchor.quote
   selectionPos.value = { x: Math.min(window.innerWidth - 190, Math.max(12, rect.left + rect.width / 2 - 88)), y: Math.max(62, rect.top - 48) }
 }
 
 function openAnnotation() {
   if (!requireAccount()) return
+  if (!selectedAnchor.value) return
+  activeAnnotationId.value = null
   composerOpen.value = true
+  window.getSelection()?.removeAllRanges()
   openInsight('notes')
   nextTick(() => document.querySelector<HTMLTextAreaElement>('.annotation-input')?.focus())
 }
@@ -455,9 +491,14 @@ async function saveAnnotation() {
   const articleId = activeArticle.value.id
   const body = annotationText.value.trim()
   const quote = selectedQuote.value
+  const anchor = selectedAnchor.value
+  const requestId = articleRequest
   try {
-    const note = await api.createAnnotation({ articleId, quote, body, color: '#e5a84b' })
-    if (activeArticle.value.id === articleId) annotations.value.unshift(note)
+    const note = await api.createAnnotation({ ...anchor, articleId, quote, body, color: '#e5a84b' })
+    if (articleRequest === requestId) {
+      annotations.value.unshift(note)
+      activeAnnotationId.value = note.id
+    }
     await refreshStats()
   } catch (error) {
     showToast(error instanceof Error ? error.message : '批注发布失败')
@@ -465,9 +506,10 @@ async function saveAnnotation() {
   } finally {
     annotationBusy.value = false
   }
-  annotationText.value = ''
-  composerOpen.value = false
-  selectedQuote.value = ''
+  if (articleRequest === requestId) {
+    annotationText.value = ''
+    cancelAnnotation()
+  }
   showToast(user.value?.role === 'admin' ? '批注已公开发布' : '批注已提交，审核通过后公开')
 }
 
@@ -592,14 +634,53 @@ async function copyText(text: string) {
   menu.value = null
 }
 
-function showSectionNotes(content: string) {
-  noteFilter.value = content
+function showSectionNotes(sectionId: number) {
+  noteFilter.value = sectionId
   openInsight('notes')
 }
 
-function annotateSection(content: string) {
-  selectedQuote.value = [...content].slice(0, 200).join('')
+function annotateSection(section: Section) {
+  const root = document.querySelector<HTMLElement>(`#section-${section.id} .wiki-content`)
+  const text = root?.textContent ?? section.content
+  const quote = [...section.content].slice(0, 200).join('').trim()
+  const range = locateQuote(text, { quote })
+  if (!range) { showToast('请在正文中选中具体文字，再点击“批注”'); return }
+  selectedAnchor.value = { ...anchorAt(text, range.start, range.end), sectionId: section.id }
+  selectedQuote.value = quote
   openAnnotation()
+}
+
+function cancelAnnotation() {
+  composerOpen.value = false
+  selectedQuote.value = ''
+  selectedAnchor.value = null
+}
+
+async function locateAnnotation(note: Annotation) {
+  activeAnnotationId.value = note.id
+  mobileView.value = 'reader'
+  await nextTick()
+  const mark = document.querySelector<HTMLElement>(`.article-body mark[data-annotation-ids~="${note.id}"]`)
+  if (!mark) { showToast('原文可能已修改或引用不唯一，暂时无法准确定位这条批注'); return }
+  for (let parent = mark.parentElement; parent; parent = parent.parentElement) {
+    if (parent instanceof HTMLDetailsElement) parent.open = true
+  }
+  mark.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  mark.focus({ preventScroll: true })
+}
+
+async function selectHighlightedNotes(ids: number[]) {
+  const current = ids.indexOf(activeAnnotationId.value ?? -1)
+  const id = ids[(current + 1) % ids.length]
+  if (!id) return
+  selectedQuote.value = ''
+  activeAnnotationId.value = id
+  noteFilter.value = null
+  openInsight('notes')
+  await nextTick()
+  const card = document.getElementById(`annotation-${id}`)
+  card?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  card?.querySelector<HTMLButtonElement>('.quote-strip')?.focus({ preventScroll: true })
 }
 
 async function openReplies(note: Annotation) {
@@ -689,7 +770,7 @@ function handleShortcut(event: KeyboardEvent) {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
     event.preventDefault(); searchInput.value?.focus()
   }
-  if (event.key === 'Escape') { selectedQuote.value = ''; composerOpen.value = false; menu.value = null; if (!submitting.value) dialog.value = null }
+  if (event.key === 'Escape') { cancelAnnotation(); activeAnnotationId.value = null; menu.value = null; if (!submitting.value) dialog.value = null }
   if (event.key === 'Tab' && dialog.value) {
     const elements = [...document.querySelectorAll<HTMLElement>('.action-dialog button:not(:disabled), .action-dialog input, .action-dialog select, .action-dialog textarea')]
     const first = elements[0], last = elements[elements.length - 1]
@@ -701,6 +782,7 @@ function handleShortcut(event: KeyboardEvent) {
 onMounted(async () => {
   syncThemeColor()
   window.addEventListener('keydown', handleShortcut)
+  document.addEventListener('selectionchange', handleSelection)
   window.addEventListener('mathwiki:login-required', sessionExpired)
   try { user.value = (await api.me()).user } catch { user.value = null }
   await loadBackendContent()
@@ -709,6 +791,7 @@ onUnmounted(() => {
   stopExplanation()
   window.removeEventListener('mathwiki:login-required', sessionExpired)
   window.removeEventListener('keydown', handleShortcut)
+  document.removeEventListener('selectionchange', handleSelection)
   window.clearTimeout(searchTimer)
   cancelVoice()
 })
@@ -824,12 +907,11 @@ onUnmounted(() => {
             <details v-if="activeArticle.sections.length > 3" class="article-toc"><summary>本页目录 · {{ activeArticle.sections.filter(s => s.position !== 1000001).length }} 节</summary><nav><a v-for="section in activeArticle.sections" :key="section.id" :href="`#section-${section.id}`" :class="{ nested: (section.level ?? 2) > 2 }">{{ section.title }}</a></nav></details>
             <div class="article-rule" />
             <section v-for="(section, index) in activeArticle.sections" :id="`section-${section.id}`" :key="section.id" :data-section="section.id" :class="{ 'intro-section': activeArticle.contentVersion === 2 && section.position === 0, 'sub-section': (section.level ?? 2) > 2 }">
-              <div class="section-heading"><span>{{ String(index + 1).padStart(2, '0') }}</span><component :is="(section.level ?? 2) > 2 ? 'h3' : 'h2'">{{ section.title }}</component><button v-if="section.content" class="section-annotate" :aria-label="`批注${section.title}`" @click="annotateSection(section.content)">批注</button></div>
-              <WikiContent v-if="section.contentHtml" :html="section.contentHtml" />
-              <p v-else class="plain-section">{{ section.content }}</p>
+              <div class="section-heading"><span>{{ String(index + 1).padStart(2, '0') }}</span><component :is="(section.level ?? 2) > 2 ? 'h3' : 'h2'">{{ section.title }}</component><button v-if="section.content" class="section-annotate" :aria-label="`批注${section.title}`" @click="annotateSection(section)">批注</button></div>
+              <WikiContent :html="section.contentHtml" :text="section.content" :annotations="highlightsFor(section.id)" :active-annotation-id="activeAnnotationId" @annotation-click="selectHighlightedNotes" />
               <div v-if="section.formula" class="formula-card"><code>{{ section.formula }}</code><button title="复制公式" @click="copyText(section.formula)">复制</button></div>
-              <button v-if="articleAnnotations.some(a => section.content.includes(a.quote))" class="margin-note" :aria-label="`查看${section.title}关联批注`" title="查看关联批注" @click="showSectionNotes(section.content)">
-                <span v-html="icon('comment', 14)" />{{ articleAnnotations.filter(a => section.content.includes(a.quote)).length }}
+              <button v-if="sectionNotes.get(section.id)?.length" class="margin-note" :aria-label="`查看${section.title}关联批注`" title="查看关联批注" @click="showSectionNotes(section.id)">
+                <span v-html="icon('comment', 14)" />{{ sectionNotes.get(section.id)?.length }}
               </button>
             </section>
             <div v-if="!activeArticle.sections.some(s => s.content.trim())" class="coming-soon"><span>暂无可展示的正文</span><p>请对照原始词条，或提交内容问题反馈。</p><button @click="openDialog('feedback')">反馈问题</button></div>
@@ -843,7 +925,7 @@ onUnmounted(() => {
       <aside v-if="readerVisible" class="insight-pane" :class="{ closed: !rightOpen }">
         <div class="insight-tabs">
           <button :class="{ active: panelTab === 'ai' }" @click="panelTab = 'ai'"><span v-html="icon('spark', 16)" />AI 解释</button>
-          <button :class="{ active: panelTab === 'notes' }" @click="panelTab = 'notes'; noteFilter = ''"><span v-html="icon('comment', 16)" />批注 <em>{{ articleAnnotations.length }}</em></button>
+          <button :class="{ active: panelTab === 'notes' }" @click="panelTab = 'notes'; noteFilter = null"><span v-html="icon('comment', 16)" />批注 <em>{{ articleAnnotations.length }}</em></button>
           <button :class="{ active: panelTab === 'info' }" @click="panelTab = 'info'"><span v-html="icon('info', 16)" />条目信息</button>
           <button class="close-panel" aria-label="关闭右侧面板，返回正文" @click="closeInsight" v-html="icon('close', 15)" />
         </div>
@@ -885,12 +967,13 @@ onUnmounted(() => {
           <div v-if="composerOpen" class="note-composer">
             <div class="selected-quote"><span v-html="icon('quote', 14)" />{{ selectedQuote }}</div>
             <textarea class="annotation-input" v-model="annotationText" rows="4" placeholder="围绕这句话写下你的理解或疑问…" />
-            <div><button class="text-btn" @click="composerOpen = false; selectedQuote = ''">取消</button><button class="primary-btn" :disabled="!annotationText.trim() || annotationBusy" @click="saveAnnotation">{{ annotationBusy ? '正在发布…' : '发布批注' }}</button></div>
+            <div><button class="text-btn" @click="cancelAnnotation">取消</button><button class="primary-btn" :disabled="!annotationText.trim() || annotationBusy" @click="saveAnnotation">{{ annotationBusy ? '正在发布…' : '发布批注' }}</button></div>
           </div>
           <div class="notes-header"><div><strong>句子讨论</strong><span>批注与原文保持关联</span></div><select v-model="noteSort" aria-label="批注排序"><option>最相关</option><option>最新</option></select></div>
-          <button v-if="noteFilter" class="text-btn" @click="noteFilter = ''">正在查看本段批注 · 显示全部</button>
-          <div v-for="note in visibleNotes" :key="note.id" class="note-card">
-            <div class="quote-strip" :style="{ borderColor: note.color }"><span v-html="icon('quote', 13)" /><p>{{ note.quote }}</p></div>
+          <p class="annotation-hint">正文黄色标记表示已有批注；点击下方引用可定位原文。</p>
+          <button v-if="noteFilter" class="text-btn" @click="noteFilter = null">正在查看本段批注 · 显示全部</button>
+          <div v-for="note in visibleNotes" :id="`annotation-${note.id}`" :key="note.id" class="note-card" :class="{ 'is-selected': activeAnnotationId === note.id }">
+            <button type="button" class="quote-strip" :style="{ borderColor: note.color }" :aria-pressed="activeAnnotationId === note.id" title="定位原文并高亮" @click="locateAnnotation(note)"><span v-html="icon('quote', 13)" /><span>{{ note.quote }}</span><small>定位原文</small></button>
             <div class="note-author"><UserAvatar :src="note.avatar" :name="note.author" /><div><strong>{{ note.author }}</strong><small>{{ formatDate(note.createdAt) }}</small></div><button aria-label="反馈此批注" title="反馈此批注" @click="reportNote(note)" v-html="icon('more', 15)" /></div>
             <div v-if="note.status && note.status !== 'visible'" class="note-status">{{ note.status === 'pending' ? '待审核 · 仅作者和管理员可见' : '已驳回 · 仅作者和管理员可见' }}</div>
             <button v-if="canDelete(note.userId)" class="text-btn danger" @click="deleteNote(note)">删除批注</button>
@@ -915,7 +998,7 @@ onUnmounted(() => {
       </aside>
     </div>
 
-    <div v-if="selectedQuote && !composerOpen" class="selection-toolbar" :style="{ left: selectionPos.x + 'px', top: selectionPos.y + 'px' }">
+    <div v-if="selectedQuote && !composerOpen" class="selection-toolbar" @mousedown.prevent :style="{ left: selectionPos.x + 'px', top: selectionPos.y + 'px' }">
       <button @click="explainSelection"><span v-html="icon('spark', 14)" />AI 解释</button><i /><button @click="openAnnotation"><span v-html="icon('comment', 14)" />批注</button>
     </div>
     <div v-if="dialog" class="dialog-backdrop" @click.self="!submitting && (dialog = null)">
