@@ -1,4 +1,0 @@
-# Optional, only for generating and verifying submission PDFs.
-reportlab>=4.0,<5
-pypdf>=5,<7
-Pillow>=10,<13

@@ -8,10 +8,11 @@
 | 前端 | Node 22.18+，pnpm 10.17.1，package.json / pnpm-lock.yaml | Vue、TypeScript、Vite、KaTeX、DOMPurify |
 | 数据库 | Compose MySQL 8.4；现生产实例为 MySQL 9.0.1 | 新部署优先遵循 Compose，勿直接降级现有数据目录 |
 | RAG | Compose 固定 Chroma 镜像摘要；Docker + Compose v2 | 可选，仅启用 rag profile 才启动 |
-| 语料工具 | Python 3，scripts/requirements.txt | 只在重新解析语料时需要 |
-| 文档工具 | Python 3.10+，scripts/requirements-docs.txt | 仅构建提交 PDF，不进入业务服务 |
+| 正文解析 | Python 3.10+，scripts/requirements.txt | 仅重新解析 WikiText 时需要 |
 
 README 给出不依赖云密钥的 SQLite 启动；需要真实 AI 对话时还需模型密钥、登录账户及 SMTP 验证，不能靠演示模式证明已接入真实模型。
+
+保留的辅助工具用于 Windows 启动与管理员授权、公开快照导入、RAG 索引维护、WikiText 正文解析及发布检查。环境文件和依赖锁文件与对应源码一并维护。
 
 ## 2. 环境文件加载规则
 

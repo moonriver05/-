@@ -110,7 +110,7 @@ frontend/tests/          Node 交互及边界测试
 datasets/               仅公开知识内容
 infrastructure/         服务与兼容部署配置
 docs/                   安装、设计、上线及提交材料
-scripts/                开发、语料、发布检查与文档生成
+scripts/                启动、数据导入、RAG 建库、正文解析及发布检查
 ```
 
 ```bash
