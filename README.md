@@ -140,6 +140,6 @@ GitHub Actions 运行自动检查；Go 使用 gofmt，前端使用 TypeScript �
 
 ## 评审材料与许可
 
-[技术文档（Word 可编辑版）](docs/submission/technical-report.docx)。
+[技术文档](docs/submission/technical-report.docx)。
 
 知识内容按出处保留 CC BY-SA 4.0 和修改说明；图片许可以原文件页为准。内容许可不自动覆盖代码或依赖。代码尚未指定开放源代码许可证，Public 可查看评审，不等于任意再利用授权。
