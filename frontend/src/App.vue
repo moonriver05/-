@@ -259,10 +259,23 @@ const sectionNotes = computed(() => {
   }
   return result
 })
+// Keep each section's array stable while selecting text or editing a note, so
+// unrelated renders do not rebuild marks and interrupt the native selection.
+const sectionHighlights = computed(() => {
+  const result = new Map<number, Highlight[]>()
+  for (const [sectionId, notes] of sectionNotes.value) {
+    const selected = notes.filter(note => note.id === activeAnnotationId.value)
+    if (selected.length) result.set(sectionId, selected)
+  }
+  if (composerOpen.value && selectedAnchor.value) {
+    const anchor = selectedAnchor.value
+    result.set(anchor.sectionId, [...(result.get(anchor.sectionId) ?? []), { ...anchor, id: -1 }])
+  }
+  return result
+})
+const noHighlights: Highlight[] = []
 function highlightsFor(sectionId: number): Highlight[] {
-  const notes: Highlight[] = sectionNotes.value.get(sectionId) ?? []
-  return composerOpen.value && selectedAnchor.value?.sectionId === sectionId
-    ? [...notes, { ...selectedAnchor.value, id: -1 }] : notes
+  return sectionHighlights.value.get(sectionId) ?? noHighlights
 }
 const visibleNotes = computed(() => {
   const notes = noteFilter.value == null ? articleAnnotations.value : sectionNotes.value.get(noteFilter.value) ?? []
@@ -497,7 +510,6 @@ async function saveAnnotation() {
     const note = await api.createAnnotation({ ...anchor, articleId, quote, body, color: '#e5a84b' })
     if (articleRequest === requestId) {
       annotations.value.unshift(note)
-      activeAnnotationId.value = note.id
     }
     await refreshStats()
   } catch (error) {
@@ -657,11 +669,16 @@ function cancelAnnotation() {
 }
 
 async function locateAnnotation(note: Annotation) {
+  if (activeAnnotationId.value === note.id) {
+    activeAnnotationId.value = null
+    return
+  }
   activeAnnotationId.value = note.id
   mobileView.value = 'reader'
   await nextTick()
+  if (activeAnnotationId.value !== note.id) return
   const mark = document.querySelector<HTMLElement>(`.article-body mark[data-annotation-ids~="${note.id}"]`)
-  if (!mark) { showToast('原文可能已修改或引用不唯一，暂时无法准确定位这条批注'); return }
+  if (!mark) { activeAnnotationId.value = null; showToast('原文可能已修改或引用不唯一，暂时无法准确定位这条批注'); return }
   for (let parent = mark.parentElement; parent; parent = parent.parentElement) {
     if (parent instanceof HTMLDetailsElement) parent.open = true
   }
@@ -669,18 +686,8 @@ async function locateAnnotation(note: Annotation) {
   mark.focus({ preventScroll: true })
 }
 
-async function selectHighlightedNotes(ids: number[]) {
-  const current = ids.indexOf(activeAnnotationId.value ?? -1)
-  const id = ids[(current + 1) % ids.length]
-  if (!id) return
-  selectedQuote.value = ''
-  activeAnnotationId.value = id
-  noteFilter.value = null
-  openInsight('notes')
-  await nextTick()
-  const card = document.getElementById(`annotation-${id}`)
-  card?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-  card?.querySelector<HTMLButtonElement>('.quote-strip')?.focus({ preventScroll: true })
+function deselectHighlightedNote(ids: number[]) {
+  if (ids.includes(activeAnnotationId.value ?? -1)) activeAnnotationId.value = null
 }
 
 async function openReplies(note: Annotation) {
@@ -827,7 +834,7 @@ onUnmounted(() => {
     <nav class="mobile-navigation" aria-label="工作区切换" :inert="authOpen || moderationOpen || profileOpen || feedbackOpen">
       <button :aria-current="mobileView === 'results' ? 'page' : undefined" @click="mobileView = 'results'; sidebarOpen = false">词条列表</button>
       <button :disabled="!readerVisible" :aria-current="mobileView === 'reader' ? 'page' : undefined" @click="mobileView = 'reader'; sidebarOpen = false">正文阅读</button>
-      <button :disabled="!readerVisible" :aria-current="mobileView === 'insight' ? 'page' : undefined" @click="openInsight('ai')">AI / 批注</button>
+      <button :disabled="!readerVisible" :aria-current="mobileView === 'insight' ? 'page' : undefined" @click="openInsight()">AI / 批注</button>
     </nav>
     <div class="workspace" :inert="authOpen || moderationOpen || profileOpen || feedbackOpen">
       <aside class="library-pane" :class="{ open: sidebarOpen }">
@@ -908,7 +915,7 @@ onUnmounted(() => {
             <div class="article-rule" />
             <section v-for="(section, index) in activeArticle.sections" :id="`section-${section.id}`" :key="section.id" :data-section="section.id" :class="{ 'intro-section': activeArticle.contentVersion === 2 && section.position === 0, 'sub-section': (section.level ?? 2) > 2 }">
               <div class="section-heading"><span>{{ String(index + 1).padStart(2, '0') }}</span><component :is="(section.level ?? 2) > 2 ? 'h3' : 'h2'">{{ section.title }}</component><button v-if="section.content" class="section-annotate" :aria-label="`批注${section.title}`" @click="annotateSection(section)">批注</button></div>
-              <WikiContent :html="section.contentHtml" :text="section.content" :annotations="highlightsFor(section.id)" :active-annotation-id="activeAnnotationId" @annotation-click="selectHighlightedNotes" />
+              <WikiContent :html="section.contentHtml" :text="section.content" :annotations="highlightsFor(section.id)" :active-annotation-id="activeAnnotationId" @annotation-click="deselectHighlightedNote" />
               <div v-if="section.formula" class="formula-card"><code>{{ section.formula }}</code><button title="复制公式" @click="copyText(section.formula)">复制</button></div>
               <button v-if="sectionNotes.get(section.id)?.length" class="margin-note" :aria-label="`查看${section.title}关联批注`" title="查看关联批注" @click="showSectionNotes(section.id)">
                 <span v-html="icon('comment', 14)" />{{ sectionNotes.get(section.id)?.length }}
@@ -970,10 +977,10 @@ onUnmounted(() => {
             <div><button class="text-btn" @click="cancelAnnotation">取消</button><button class="primary-btn" :disabled="!annotationText.trim() || annotationBusy" @click="saveAnnotation">{{ annotationBusy ? '正在发布…' : '发布批注' }}</button></div>
           </div>
           <div class="notes-header"><div><strong>句子讨论</strong><span>批注与原文保持关联</span></div><select v-model="noteSort" aria-label="批注排序"><option>最相关</option><option>最新</option></select></div>
-          <p class="annotation-hint">正文黄色标记表示已有批注；点击下方引用可定位原文。</p>
+          <p class="annotation-hint">点击“定位原文”只高亮这条批注，再点一次即可取消。</p>
           <button v-if="noteFilter" class="text-btn" @click="noteFilter = null">正在查看本段批注 · 显示全部</button>
           <div v-for="note in visibleNotes" :id="`annotation-${note.id}`" :key="note.id" class="note-card" :class="{ 'is-selected': activeAnnotationId === note.id }">
-            <button type="button" class="quote-strip" :style="{ borderColor: note.color }" :aria-pressed="activeAnnotationId === note.id" title="定位原文并高亮" @click="locateAnnotation(note)"><span v-html="icon('quote', 13)" /><span>{{ note.quote }}</span><small>定位原文</small></button>
+            <button type="button" class="quote-strip" :style="{ borderColor: note.color }" :aria-pressed="activeAnnotationId === note.id" :title="activeAnnotationId === note.id ? '取消选择并清除高亮' : '定位原文并高亮'" @click="locateAnnotation(note)"><span v-html="icon('quote', 13)" /><span>{{ note.quote }}</span><small>{{ activeAnnotationId === note.id ? '取消选择' : '定位原文' }}</small></button>
             <div class="note-author"><UserAvatar :src="note.avatar" :name="note.author" /><div><strong>{{ note.author }}</strong><small>{{ formatDate(note.createdAt) }}</small></div><button aria-label="反馈此批注" title="反馈此批注" @click="reportNote(note)" v-html="icon('more', 15)" /></div>
             <div v-if="note.status && note.status !== 'visible'" class="note-status">{{ note.status === 'pending' ? '待审核 · 仅作者和管理员可见' : '已驳回 · 仅作者和管理员可见' }}</div>
             <button v-if="canDelete(note.userId)" class="text-btn danger" @click="deleteNote(note)">删除批注</button>

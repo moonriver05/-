@@ -86,7 +86,7 @@ export function paintHighlights(root: HTMLElement, notes: Highlight[], activeId?
       if (ids.some(id => id !== -1)) {
         mark.tabIndex = 0
         mark.setAttribute('role', 'button')
-        mark.setAttribute('aria-label', `查看此处批注（${ids.filter(id => id !== -1).length} 条）`)
+        mark.setAttribute('aria-label', activeId != null && ids.includes(activeId) ? '取消批注高亮' : `查看此处批注（${ids.filter(id => id !== -1).length} 条）`)
       }
       mark.append(slice)
       fragment.append(mark)
