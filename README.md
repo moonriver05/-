@@ -11,6 +11,7 @@
 | AI | DeepSeek 兼容接口、SSE 流式初稿、第二轮模型自检、原文引文校验 |
 | RAG | 豆包云端 embedding、Chroma 1024 维检索、MySQL 原文回查；生产已建库 48,560 段 |
 | 个性化追问 | 四档程度、四种讲法，本轮要求优先；指代追问附带有限上下文检索 |
+| 多窗口问答 | 主窗口与最多三个子窗口分别提问，共享本词条最近已完成的对话；支持排队、取消和手机切换 |
 | 社区与手机 | 选句批注、评论、收藏、审核及反馈；H5 列表 / 阅读 / AI 工作区 |
 | 管理员授权 | 已有管理员授权 / 撤销他人，原因与审计、二次确认、旧会话失效 |
 | 本轮保护 | 每账户同时一条回答、全局并发和每分钟配额；未配置语音时隐藏入口 |
@@ -94,6 +95,7 @@ Windows 用 Copy-Item .env.example .env。默认只启动 web、api、mysql。�
 - [公开快照导入](datasets/README.md)：8 个分片，导入空内容库，不分发账户与互动数据。
 - [RAG 接入](docs/rag-deployment.md) / [全库建库](docs/rag-full-index.md)：先估算再建库，同内容已有片段跳过。
 - [追问与程度更新](docs/conversation-retrieval-update.md) / [本轮上线说明](docs/review-release.md)。
+- [多窗口共享上下文](docs/shared-chat-windows.md)：独立展示问答、共享最近六轮模型对话。
 - [账户](docs/accounts.md)、[媒体](docs/media-deployment.md)、[H5](docs/h5-deployment.md)。
 - [网页管理员授权](docs/admin-roles.md)：首次管理员用命令行建立，后续在网页管理。
 

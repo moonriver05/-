@@ -2,7 +2,9 @@
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { api } from './api'
 import { SpeechInput } from './speechInput'
-import { conversationHistory, handleComposerKey, type ConversationTurn } from './explanationStream'
+import { handleComposerKey } from './explanationStream'
+import { createSharedChats } from './sharedChats'
+import AiChatWindow from './components/AiChatWindow.vue'
 import WikiContent from './components/WikiContent.vue'
 import AuthPage from './components/AuthPage.vue'
 import ArticleComments from './components/ArticleComments.vue'
@@ -46,22 +48,58 @@ function toggleInsight() {
   if (window.matchMedia('(max-width: 850px)').matches || !rightOpen.value) openInsight()
   else closeInsight()
 }
-const level = ref('本科生')
-const explainStyle = ref('直觉 + 严谨')
-const explainPrompt = ref('为什么边权不能是负数？')
-const explaining = ref(false)
-const verificationStage = ref(0)
-const conversation = ref<ConversationTurn[]>([])
-let explainController: AbortController | null = null
+const chats = createSharedChats({ articleId: () => activeArticle.value.id, request: (input, event, signal) => api.streamExplanation(input, event, signal), onUpdate: followConversation })
+const mainChat = chats.state.windows[0]!
+mainChat.prompt = '为什么边权不能是负数？'
+const level = computed({ get: () => mainChat.audience, set: value => { mainChat.audience = value } })
+const explainStyle = computed({ get: () => mainChat.style, set: value => { mainChat.style = value } })
+const explainPrompt = computed({ get: () => mainChat.prompt, set: value => { mainChat.prompt = value } })
+const conversation = computed(() => chats.turnsFor(1))
+const mainPending = computed(() => chats.pending(1))
+const explaining = computed(() => !!mainPending.value)
+const verificationStage = computed(() => mainPending.value?.phase === 'verifying' ? 3 : mainPending.value?.phase === 'retrieving' ? 1 : 2)
+const sharedRounds = computed(() => chats.sharedHistory().length / 2)
+const sharedRecords = computed(() => sharedRounds.value ? chats.state.turns.filter(turn => turn.status === 'done' && turn.result?.mode === 'model').slice(-sharedRounds.value) : [])
+const showSharedContext = ref(false)
+const floatingChats = computed(() => chats.state.windows.filter(chat => chat.id !== 1))
 
 function clearConversation() {
-  explainController?.abort()
-  explainController = null
-  explaining.value = false
-  conversation.value = []
+  chats.clear()
+  showSharedContext.value = false
 }
 
-function stopExplanation() { explainController?.abort() }
+function startNewConversation() {
+  if (floatingChats.value.length && chats.state.turns.length && !window.confirm('这会清空所有窗口的共享对话，并停止正在处理的问题。继续吗？')) return
+  clearConversation()
+}
+function stopExplanation() { chats.cancel(1) }
+
+function addChatWindow() {
+  const index = floatingChats.value.length
+  const id = chats.addWindow(Math.max(12, window.innerWidth - 740 - index * 375), 100 + index * 24)
+  if (id == null) { showToast('最多同时打开主窗口和 3 个子窗口，可先关闭现有窗口'); return }
+  openInsight('ai')
+}
+function activateChat(windowId: number) {
+  const chat = chats.state.windows.find(item => item.id === windowId)
+  if (!chat) return
+  chat.minimized = false
+  chats.state.activeWindowId = windowId
+  if (windowId === 1 || window.matchMedia('(max-width: 850px)').matches) openInsight('ai')
+}
+function minimizeChat(windowId: number) {
+  const chat = chats.state.windows.find(item => item.id === windowId)
+  if (chat) chat.minimized = true
+  chats.state.activeWindowId = 1
+}
+function closeChatWindow(windowId: number) {
+  chats.closeWindow(windowId)
+  if (chats.state.activeWindowId === 1) nextTick(() => document.querySelector<HTMLTextAreaElement>('.ai-panel textarea')?.focus({ preventScroll: true }))
+}
+function openChatCitation(windowId: number, cite: Explanation['citations'][number]) {
+  minimizeChat(windowId)
+  void openCitation(cite)
+}
 
 async function openCitation(cite: Explanation['citations'][number]) {
   if (!cite.articleSlug || !cite.sectionId) return
@@ -77,8 +115,8 @@ async function openCitation(cite: Explanation['citations'][number]) {
   } catch { showToast('引用来源暂不可用，词条可能已更新或撤回') }
 }
 
-function followConversation(force = false) {
-  const panel = document.querySelector<HTMLElement>('.ai-panel')
+function followConversation(windowId = 1, force = false) {
+  const panel = document.querySelector<HTMLElement>(windowId === 1 ? '.ai-panel' : `[data-chat-window="${windowId}"] .chat-scroll`)
   if (!panel || (!force && panel.scrollHeight - panel.scrollTop - panel.clientHeight > 180)) return
   nextTick(() => { if (panel.isConnected) panel.scrollTop = panel.scrollHeight })
 }
@@ -406,6 +444,7 @@ async function loadBackendContent() {
     await loadArticles()
     if (!hasSelectedArticle.value && items.value.length) await selectArticle(items.value[0], false)
   } catch {
+    clearConversation()
     apiState.value = 'offline'
     items.value = [...mockArticles]
     activeArticle.value = items.value[0]
@@ -463,38 +502,16 @@ function explainSelection() {
   runExplain()
 }
 
-async function runExplain() {
+function runExplain() { submitChat(1) }
+
+function submitChat(windowId: number) {
   if (!requireAccount()) return
-  if (explaining.value || voiceBusy.value || !explainPrompt.value.trim()) return
+  const chat = chats.state.windows.find(item => item.id === windowId)
+  if (!chat || chats.pending(windowId) || (windowId === 1 && voiceBusy.value) || !chat.prompt.trim()) return
+  if ([...chat.prompt.trim()].length > 2000) { showToast('问题最多 2000 字，请缩小问题范围'); return }
   if (!requireOnline()) return
-  const requestedArticle = activeArticle.value.id
-  const question = explainPrompt.value.trim()
-  const history = conversationHistory(conversation.value)
-  const controller = new AbortController()
-  explainController = controller
-  const index = conversation.value.length
-  conversation.value.push({ question, text: '' })
-  const turn = conversation.value[index]!
-  explainPrompt.value = ''
-  followConversation(true)
-  explaining.value = true
-  verificationStage.value = 1
-  try {
-    await api.streamExplanation({ articleId: requestedArticle, question, audience: level.value, style: explainStyle.value, history }, event => {
-      if (explainController !== controller || activeArticle.value.id !== requestedArticle) return
-      if (event.type === 'delta') turn.text += event.text || ''
-      if (event.type === 'phase') verificationStage.value = event.text === 'retrieving' ? 1 : event.text === 'verifying' ? 3 : 2
-      if (event.type === 'done') turn.result = event.explanation
-      followConversation()
-    }, controller.signal)
-  } catch (error) {
-    if (explainController === controller) {
-      turn.error = controller.signal.aborted ? '已停止。以上内容尚未完成核验。' : error instanceof Error ? error.message : '解释生成失败，请重试'
-      if (!explainPrompt.value) explainPrompt.value = question
-    }
-  } finally {
-    if (explainController === controller) { verificationStage.value = 4; explaining.value = false; explainController = null }
-  }
+  chats.state.activeWindowId = windowId
+  chats.submit(windowId)
 }
 
 async function saveAnnotation() {
@@ -795,7 +812,7 @@ onMounted(async () => {
   await loadBackendContent()
 })
 onUnmounted(() => {
-  stopExplanation()
+  chats.clear()
   window.removeEventListener('mathwiki:login-required', sessionExpired)
   window.removeEventListener('keydown', handleShortcut)
   document.removeEventListener('selectionchange', handleSelection)
@@ -939,14 +956,19 @@ onUnmounted(() => {
 
         <div v-if="panelTab === 'ai'" class="insight-content ai-panel">
           <div class="ai-intro"><div class="ai-orb">✦</div><div><strong>个性化解释</strong><p>基于当前词条提供解释与引用</p></div></div>
+          <div class="chat-session-bar"><span>◈ 共享上下文 · {{ sharedRounds }} / 6 轮</span><button class="text-btn add-chat-window" :disabled="chats.state.windows.length >= 4" @click="addChatWindow">＋ 新建子窗口</button></div>
+          <div class="chat-window-tabs" role="toolbar" aria-label="AI 聊天窗口"><button v-for="chat in chats.state.windows" :key="chat.id" :aria-pressed="chats.state.activeWindowId === chat.id" @click="activateChat(chat.id)">{{ chat.name }}<small v-if="chats.pending(chat.id)">{{ chats.pending(chat.id)?.status === 'queued' ? '排队' : '回答中' }}</small></button></div>
+          <p class="chat-context-note">各窗口单独展示问答，共用本词条最近已完成的对话。切换词条会清空共享上下文。</p>
+          <button v-if="sharedRounds" class="text-btn shared-context-toggle" :aria-expanded="showSharedContext" @click="showSharedContext = !showSharedContext">{{ showSharedContext ? '收起共享记录' : '查看共享记录' }}</button>
+          <div v-if="showSharedContext" class="shared-context-records"><article v-for="turn in sharedRecords" :key="turn.id"><small>{{ turn.windowName }}</small><strong>{{ turn.question }}</strong><p>{{ turn.result?.summary.slice(0, 300) }}</p></article></div>
           <p v-if="!capabilities.aiConfigured" class="service-notice">尚未配置模型密钥；发送后仅展示词条引用示例，不会生成 AI 答案。</p>
           <div class="control-grid">
             <label><span>我的程度</span><select v-model="level"><option>小学生</option><option>高中生</option><option>本科生</option><option>专业学习者</option></select></label>
             <label><span>解释方式</span><select v-model="explainStyle"><option>直觉 + 严谨</option><option>生活类比</option><option>公式推导</option><option>例题演示</option></select></label>
           </div>
-          <div v-if="conversation.length" class="conversation-toolbar"><span>当前词条对话 · {{ conversation.length }} 轮</span><button class="text-btn" @click="clearConversation">开始新对话</button></div>
+          <div v-if="chats.state.turns.length" class="conversation-toolbar"><span>主窗口 · {{ conversation.length }} 轮</span><button class="text-btn" title="清空所有窗口的共享对话" @click="startNewConversation">开始新对话</button></div>
           <div class="conversation-thread" aria-live="polite" aria-relevant="additions text">
-            <article v-for="(turn, turnIndex) in conversation" :key="turnIndex" class="conversation-turn">
+            <article v-for="(turn, turnIndex) in conversation" :key="turn.id" class="conversation-turn">
               <p class="user-question">{{ turn.question }}</p>
               <div v-if="turn.result" class="answer-card">
                 <div v-if="turn.result.kind !== 'conversation'" class="answer-head"><span class="verified-badge">{{ turn.result.mode === 'demo' ? '引用示例 · 未调用模型' : '模型自检完成' }}</span></div>
@@ -958,14 +980,14 @@ onUnmounted(() => {
               </div>
               <template v-else>
                 <p v-if="turn.text" class="stream-answer">{{ turn.text }}</p>
-                <p v-if="explaining && turnIndex === conversation.length - 1" class="stream-status" role="status">{{ verificationStage === 3 ? '正在核验引用与结论…' : verificationStage === 1 && capabilities.ragConfigured ? '正在检索相关知识…' : turn.text ? '正在回答…' : '正在连接模型…' }}</p>
+                <p v-if="explaining && turnIndex === conversation.length - 1" class="stream-status" role="status">{{ mainPending?.status === 'queued' ? '正在排队，将接着前面完成的回答继续…' : verificationStage === 3 ? '正在核验引用与结论…' : verificationStage === 1 && capabilities.ragConfigured ? '正在检索相关知识…' : turn.text ? '正在回答…' : '正在连接模型…' }}</p>
                 <p v-if="turn.error" class="inline-error" role="alert">{{ turn.error }}</p>
               </template>
             </article>
           </div>
           <div class="prompt-box" :class="{ listening }">
-            <textarea v-model="explainPrompt" rows="3" :placeholder="conversation.length ? '继续追问，例如：第二步能举个例子吗？' : '关于这个词条，你想理解什么？'" @keydown="handleComposerKey($event, runExplain)" />
-            <div><button v-if="capabilities.speechConfigured" class="mic-btn" :class="{ recording: listening }" :disabled="(voiceBusy && !listening) || explaining" title="语音输入" aria-label="语音输入" @click="toggleListening" v-html="icon('mic', 17)" /><span v-if="listening" class="listening-label">正在听…</span><span v-else-if="voiceBusy">正在连接或识别…</span><span v-else>Enter 发送 · Ctrl + Enter 换行</span><button v-if="explaining" class="text-btn" @click="stopExplanation">停止生成</button><button v-else class="send-btn" aria-label="发送解释请求" :disabled="!explainPrompt.trim() || voiceBusy" @click="runExplain" v-html="icon('send', 16)" /></div>
+            <textarea v-model="explainPrompt" rows="3" maxlength="2000" aria-label="主窗口的问题" :placeholder="conversation.length ? '继续追问，例如：第二步能举个例子吗？' : '关于这个词条，你想理解什么？'" @keydown="handleComposerKey($event, runExplain)" />
+            <div><button v-if="capabilities.speechConfigured" class="mic-btn" :class="{ recording: listening }" :disabled="(voiceBusy && !listening) || explaining" title="语音输入" aria-label="语音输入" @click="toggleListening" v-html="icon('mic', 17)" /><span v-if="listening" class="listening-label">正在听…</span><span v-else-if="voiceBusy">正在连接或识别…</span><span v-else>Enter 发送 · Ctrl + Enter 换行</span><button v-if="explaining" class="text-btn" @click="stopExplanation">{{ mainPending?.status === 'queued' ? '取消排队' : '停止生成' }}</button><button v-else class="send-btn" aria-label="发送解释请求" :disabled="!explainPrompt.trim() || voiceBusy" @click="runExplain" v-html="icon('send', 16)" /></div>
           </div>
           <div v-if="!conversation.length" class="suggestion-area"><span>可以这样问</span><button @click="explainPrompt = '用一个生活中的例子解释这个算法'; runExplain()">用生活例子解释</button><button @click="explainPrompt = '一步步展示算法如何运行'; runExplain()">一步步演示</button><button @click="explainPrompt = '这个算法最容易误解的地方是什么？'; runExplain()">指出常见误区</button></div>
         </div>
@@ -1005,6 +1027,8 @@ onUnmounted(() => {
       </aside>
     </div>
 
+    <AiChatWindow v-for="chat in (readerVisible ? floatingChats : [])" :key="chat.id" :chat="chat" :windows="chats.state.windows" :turns="chats.turnsFor(chat.id)" :pending="chats.pending(chat.id)" :active="chats.state.activeWindowId === chat.id" :article-title="activeArticle.title" :shared-rounds="sharedRounds" :ai-configured="capabilities.aiConfigured" @send="submitChat" @stop="chats.cancel" @close="closeChatWindow" @minimize="minimizeChat" @activate="activateChat" @add="addChatWindow" @citation="openChatCitation" @feedback="sendFeedback" />
+    <div v-if="readerVisible && floatingChats.some(chat => chat.minimized)" class="chat-window-dock" aria-label="已收起的聊天窗口"><button v-for="chat in floatingChats.filter(item => item.minimized)" :key="chat.id" @click="activateChat(chat.id)">✦ {{ chat.name }} <small v-if="chats.pending(chat.id)">{{ chats.pending(chat.id)?.status === 'queued' ? '排队中' : '回答中' }}</small><span>展开</span></button></div>
     <div v-if="selectedQuote && !composerOpen" class="selection-toolbar" @mousedown.prevent :style="{ left: selectionPos.x + 'px', top: selectionPos.y + 'px' }">
       <button @click="explainSelection"><span v-html="icon('spark', 14)" />AI 解释</button><i /><button @click="openAnnotation"><span v-html="icon('comment', 14)" />批注</button>
     </div>
