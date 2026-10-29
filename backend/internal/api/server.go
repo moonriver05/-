@@ -22,6 +22,7 @@ import (
 	"mathwiki/internal/search"
 	"mathwiki/internal/speech"
 	"mathwiki/internal/storage"
+	"mathwiki/internal/websearch"
 )
 
 type Server struct {
@@ -36,10 +37,11 @@ type Server struct {
 	speechSlots chan struct{}
 	rag         *rag.Client
 	aiGate      *aiGate
+	webSearch   *websearch.Client
 }
 
 func New(db *gorm.DB, searchClient *search.Client, explainer *ai.Explainer, sttProvider string) *Server {
-	return &Server{db: db, search: searchClient, explainer: explainer, sttProvider: sttProvider, limiter: authLimiter{entries: make(map[string]attempt)}, mailer: mail.FromEnv(), avatars: storage.FromEnv(), speech: speech.FromEnv(sttProvider), speechSlots: make(chan struct{}, 2), rag: rag.FromEnv(), aiGate: newAIGate()}
+	return &Server{db: db, search: searchClient, explainer: explainer, sttProvider: sttProvider, limiter: authLimiter{entries: make(map[string]attempt)}, mailer: mail.FromEnv(), avatars: storage.FromEnv(), speech: speech.FromEnv(sttProvider), speechSlots: make(chan struct{}, 2), rag: rag.FromEnv(), aiGate: newAIGate(), webSearch: websearch.FromEnv()}
 }
 
 func (s *Server) Router() *gin.Engine {
@@ -93,7 +95,7 @@ func (s *Server) Router() *gin.Engine {
 		v1.GET("/categories", s.listCategories)
 		v1.POST("/categories", requireAdmin, s.createCategory)
 		v1.GET("/capabilities", func(c *gin.Context) {
-			c.JSON(200, gin.H{"aiConfigured": s.explainer.Configured(), "speechConfigured": s.speech.Configured(), "ragConfigured": s.rag.Configured()})
+			c.JSON(200, gin.H{"aiConfigured": s.explainer.Configured(), "speechConfigured": s.speech.Configured(), "ragConfigured": s.rag.Configured(), "searchConfigured": s.explainer.Configured() && s.webSearch.Configured()})
 		})
 		v1.GET("/articles", s.listArticles)
 		v1.POST("/articles", requireAdmin, s.createArticle)
@@ -433,14 +435,21 @@ func (s *Server) createComment(c *gin.Context) {
 }
 
 func (s *Server) explain(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 128*1024)
 	var request struct {
-		ArticleID uint   `json:"articleId"`
-		Question  string `json:"question"`
-		Audience  string `json:"audience"`
-		Style     string `json:"style"`
+		ArticleID  uint   `json:"articleId"`
+		Question   string `json:"question"`
+		Audience   string `json:"audience"`
+		Style      string `json:"style"`
+		AnswerMode string `json:"answerMode"`
+		WebSearch  bool   `json:"webSearch"`
 	}
-	if err := c.ShouldBindJSON(&request); err != nil || strings.TrimSpace(request.Question) == "" {
+	if err := c.ShouldBindJSON(&request); err != nil || strings.TrimSpace(request.Question) == "" || utf8.RuneCountInString(request.Question) > 2000 || len(request.Audience) > 100 || len(request.Style) > 100 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请输入要解释的问题"})
+		return
+	}
+	policy, valid := s.answerOptions(c, request.AnswerMode, request.WebSearch)
+	if !valid {
 		return
 	}
 	var article model.Article
@@ -450,9 +459,15 @@ func (s *Server) explain(c *gin.Context) {
 		return
 	}
 	sources, evidence, status := s.retrieveEvidence(c.Request.Context(), article, request.Question)
-	result, err := s.explainer.Explain(c.Request.Context(), sources, request.Question, request.Audience, request.Style)
+	var webSources []websearch.Result
+	var webStatus *ai.WebSearch
+	if request.WebSearch {
+		sources, evidence, webSources, webStatus = s.addWebEvidence(c.Request.Context(), article, evidence, request.Question, request.Question)
+	}
+	result, err := s.explainer.Explain(c.Request.Context(), sources, request.Question, request.Audience, request.Style, policy)
 	if err == nil {
-		err = decorateEvidence(&result, evidence, status)
+		result.WebSearch = webStatus
+		err = decorateEvidence(&result, evidence, status, webSources...)
 	}
 	if err != nil {
 		fail(c, err)

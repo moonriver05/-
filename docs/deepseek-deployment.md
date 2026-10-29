@@ -33,3 +33,5 @@ mv -f bin/mathwiki-server.new bin/mathwiki-server
 ## 搜索与内存
 
 小内存服务器保持 `ELASTICSEARCH_ENABLED=false`，使用 MySQL 标题搜索。这个开关只改变后端查询方式，停止 ES 容器需单独执行。接入云端模型不需要在服务器加载模型权重。
+
+新增讲解范围、公式排版和 Search API 需同时更新前后端，步骤见 [讲解与联网更新](answer-modes-search.md)。仅修改现有模型环境变量时无需重新构建前端。

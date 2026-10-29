@@ -19,6 +19,8 @@ type ExplainInput = {
   audience: string
   style: string
   history?: { role: string; content: string }[]
+  answerMode?: 'balanced' | 'strict'
+  webSearch?: boolean
 }
 
 async function streamExplanation(input: ExplainInput, onEvent: (event: StreamEvent) => void, signal: AbortSignal) {
@@ -26,7 +28,7 @@ async function streamExplanation(input: ExplainInput, onEvent: (event: StreamEve
   const cancel = () => controller.abort()
   signal.addEventListener('abort', cancel, { once: true })
   if (signal.aborted) cancel()
-  const timer = window.setTimeout(cancel, 190_000)
+  const timer = window.setTimeout(cancel, 220_000)
   try {
     const response = await fetch('/api/v1/explanations/stream', {
       method: 'POST', credentials: 'same-origin', signal: controller.signal,

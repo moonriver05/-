@@ -47,6 +47,9 @@ README 给出不依赖云密钥的 SQLite 启动；需要真实 AI 对话时还�
 | LLM_BASE_URL | https://api.deepseek.com | 兼容 chat/completions 的基地址 |
 | LLM_API_KEY | 空 | 无密钥只返回明确标记的演示解释 |
 | LLM_MODEL | deepseek-flash | 本项目当前配置值；可用模型以开通账户为准，不宣称永远最新 |
+| DEEPSEEK_SEARCH_ENABLED | false | 可选联网搜索；后端开启且用户勾选后才调用 |
+| DEEPSEEK_SEARCH_BASE_URL | https://api.deepseek.com | Search API 地址；代理服务必须使用独立配置的密钥 |
+| DEEPSEEK_SEARCH_API_KEY | 空 | 可留空复用官方 DeepSeek 的 LLM_API_KEY；第三方模型服务地址不会自动复用密钥 |
 | AI_MAX_CONCURRENT | 2 | 单 API 进程全局最多并行回答，允许 1-8 |
 | AI_REQUESTS_PER_MINUTE | 6 | 每账户一分钟窗口最多准入数，允许 1-60 |
 | RAG_ENABLED | false | 显式开启向量检索 |

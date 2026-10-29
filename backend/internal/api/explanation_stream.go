@@ -10,15 +10,18 @@ import (
 	"mathwiki/internal/ai"
 	"mathwiki/internal/model"
 	"mathwiki/internal/rag"
+	"mathwiki/internal/websearch"
 )
 
 func (s *Server) explainStream(c *gin.Context) {
 	var request struct {
-		ArticleID uint         `json:"articleId"`
-		Question  string       `json:"question"`
-		Audience  string       `json:"audience"`
-		Style     string       `json:"style"`
-		History   []ai.Message `json:"history"`
+		ArticleID  uint         `json:"articleId"`
+		Question   string       `json:"question"`
+		Audience   string       `json:"audience"`
+		Style      string       `json:"style"`
+		History    []ai.Message `json:"history"`
+		AnswerMode string       `json:"answerMode"`
+		WebSearch  bool         `json:"webSearch"`
 	}
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 128*1024)
 	if err := c.ShouldBindJSON(&request); err != nil || strings.TrimSpace(request.Question) == "" || utf8.RuneCountInString(request.Question) > 2000 || len(request.Audience) > 100 || len(request.Style) > 100 {
@@ -27,6 +30,10 @@ func (s *Server) explainStream(c *gin.Context) {
 	}
 	if !validHistory(request.History) {
 		c.JSON(400, gin.H{"error": "对话上下文过长或格式错误，请开始新对话"})
+		return
+	}
+	policy, valid := s.answerOptions(c, request.AnswerMode, request.WebSearch)
+	if !valid {
 		return
 	}
 	var article model.Article
@@ -39,13 +46,16 @@ func (s *Server) explainStream(c *gin.Context) {
 	c.Header("X-Accel-Buffering", "no")
 	c.Status(http.StatusOK)
 	var evidence []rag.Evidence
+	var webSources []websearch.Result
+	var webStatus *ai.WebSearch
 	status := rag.Status{Mode: "current_article", Reason: "disabled"}
 	emit := func(event ai.StreamEvent) error {
 		if err := c.Request.Context().Err(); err != nil {
 			return err
 		}
 		if event.Type == "done" {
-			if err := decorateEvidence(event.Explanation, evidence, status); err != nil {
+			event.Explanation.WebSearch = webStatus
+			if err := decorateEvidence(event.Explanation, evidence, status, webSources...); err != nil {
 				return err
 			}
 		}
@@ -64,8 +74,14 @@ func (s *Server) explainStream(c *gin.Context) {
 			}
 		}
 		sources, evidence, status = s.retrieveEvidence(c.Request.Context(), article, retrievalQuestion(request.Question, request.History))
+		if request.WebSearch {
+			if err := emit(ai.StreamEvent{Type: "phase", Text: "searching"}); err != nil {
+				return
+			}
+			sources, evidence, webSources, webStatus = s.addWebEvidence(c.Request.Context(), article, evidence, webQuery(article.Title, request.Question, request.History), request.Question)
+		}
 	}
-	result, err := s.explainer.Stream(c.Request.Context(), sources, strings.TrimSpace(request.Question), request.Audience, request.Style, request.History, emit)
+	result, err := s.explainer.Stream(c.Request.Context(), sources, strings.TrimSpace(request.Question), request.Audience, request.Style, request.History, emit, policy)
 	if err != nil {
 		if c.Request.Context().Err() == nil {
 			_ = emit(ai.StreamEvent{Type: "error", Text: "回答未完成，请重试。已显示的内容尚未完成核验。"})

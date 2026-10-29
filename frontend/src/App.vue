@@ -5,6 +5,9 @@ import { SpeechInput } from './speechInput'
 import { handleComposerKey } from './explanationStream'
 import { createSharedChats } from './sharedChats'
 import AiChatWindow from './components/AiChatWindow.vue'
+import AiMessage from './components/AiMessage.vue'
+import { safeSourceURL } from './aiText'
+import { answerBadge, groundingNotice, webSearchNotice } from './answerStatus'
 import WikiContent from './components/WikiContent.vue'
 import AuthPage from './components/AuthPage.vue'
 import ArticleComments from './components/ArticleComments.vue'
@@ -508,6 +511,7 @@ function submitChat(windowId: number) {
   if (!requireAccount()) return
   const chat = chats.state.windows.find(item => item.id === windowId)
   if (!chat || chats.pending(windowId) || (windowId === 1 && voiceBusy.value) || !chat.prompt.trim()) return
+  if (chat.webSearch && !capabilities.value.searchConfigured) { showToast('当前联网搜索不可用，请关闭“联网补充”后重试'); return }
   if ([...chat.prompt.trim()].length > 2000) { showToast('问题最多 2000 字，请缩小问题范围'); return }
   if (!requireOnline()) return
   chats.state.activeWindowId = windowId
@@ -966,21 +970,25 @@ onUnmounted(() => {
             <label><span>我的程度</span><select v-model="level"><option>小学生</option><option>高中生</option><option>本科生</option><option>专业学习者</option></select></label>
             <label><span>解释方式</span><select v-model="explainStyle"><option>直觉 + 严谨</option><option>生活类比</option><option>公式推导</option><option>例题演示</option></select></label>
           </div>
+          <div class="answer-scope-controls"><label>讲解范围<select v-model="mainChat.answerMode" aria-label="主窗口讲解范围"><option value="balanced">智能讲解</option><option value="strict">严格依据资料</option></select></label><label class="web-search-option" :title="capabilities.searchConfigured ? '向 DeepSeek 发送问题及少量上下文，按次计费' : '服务器尚未启用联网搜索'"><input v-model="mainChat.webSearch" type="checkbox" :disabled="!capabilities.searchConfigured" />联网补充<small>{{ capabilities.searchConfigured ? "按次计费" : "暂不可用" }}</small></label></div>
           <div v-if="chats.state.turns.length" class="conversation-toolbar"><span>主窗口 · {{ conversation.length }} 轮</span><button class="text-btn" title="清空所有窗口的共享对话" @click="startNewConversation">开始新对话</button></div>
           <div class="conversation-thread" aria-live="polite" aria-relevant="additions text">
             <article v-for="(turn, turnIndex) in conversation" :key="turn.id" class="conversation-turn">
               <p class="user-question">{{ turn.question }}</p>
               <div v-if="turn.result" class="answer-card">
-                <div v-if="turn.result.kind !== 'conversation'" class="answer-head"><span class="verified-badge">{{ turn.result.mode === 'demo' ? '引用示例 · 未调用模型' : '模型自检完成' }}</span></div>
-                <p class="answer-summary">{{ turn.result.summary }}</p>
+                <div v-if="turn.result.kind !== 'conversation'" class="answer-head"><span class="verified-badge">{{ answerBadge(turn.result) }}</span></div>
+                <p v-if="turn.result.kind !== 'conversation' && groundingNotice(turn.result)" class="grounding-notice">{{ groundingNotice(turn.result) }}</p>
+                <p v-if="webSearchNotice(turn.result)" class="web-search-notice">{{ webSearchNotice(turn.result) }}</p>
+                <details v-if="turn.result.webSearch?.sources?.length" class="web-source-list"><summary>联网资料</summary><ul><li v-for="source in turn.result.webSearch.sources" :key="source.url"><a v-if="safeSourceURL(source.url)" :href="safeSourceURL(source.url)" target="_blank" rel="noopener noreferrer">{{ source.title }} ↗</a><small>{{ source.summaryOnly ? '搜索摘要，非完整正文' : '网页正文节选' }}</small></li></ul></details>
+                <AiMessage class="answer-summary" :text="turn.result.summary" />
                 <p v-if="turn.result.retrieval && turn.result.kind !== 'conversation' && turn.result.mode === 'model'" class="retrieval-status">{{ turn.result.retrieval.mode === 'chroma' ? `知识检索 · ${turn.result.retrieval.count} 段证据` : turn.result.retrieval.reason === 'disabled' ? '依据当前词条' : '知识检索未取得可用证据，依据当前词条回答' }}</p>
-                <div class="answer-steps"><div v-for="(step, i) in turn.result.steps" :key="i"><b>{{ i + 1 }}</b><section><strong>{{ step.title }}</strong><p>{{ step.content }}</p></section></div></div>
-                <details v-if="turn.result.citations.length"><summary>依据与核验 <span>{{ turn.result.citations.length }} 条引用</span></summary><div class="citation" v-for="(cite, i) in turn.result.citations" :key="i"><span>{{ cite.section }}</span><p>“{{ cite.quote }}”</p><button v-if="cite.articleSlug && cite.sectionId" class="text-btn" @click="openCitation(cite)">查看原文</button></div></details>
+                <div class="answer-steps"><div v-for="(step, i) in turn.result.steps" :key="i"><b>{{ i + 1 }}</b><section><strong>{{ step.title }}</strong><AiMessage :text="step.content" /></section></div></div>
+                <details v-if="turn.result.citations.length"><summary>依据与核验 <span>{{ turn.result.citations.length }} 条引用</span></summary><div class="citation" v-for="(cite, i) in turn.result.citations" :key="i"><span>{{ cite.section }}</span><p>“{{ cite.quote }}”</p><a v-if="cite.sourceType === 'web' && safeSourceURL(cite.sourceUrl)" class="web-source-link" :href="safeSourceURL(cite.sourceUrl)" target="_blank" rel="noopener noreferrer">查看网页来源 ↗</a><button v-else-if="cite.articleSlug && cite.sectionId" class="text-btn" @click="openCitation(cite)">查看原文</button></div></details>
                 <div v-if="turn.result.kind !== 'conversation'" class="answer-actions"><span>这条解释有帮助吗？</span><button @click="sendFeedback('helpful')">有帮助</button><button @click="sendFeedback('needs_improvement')">需改进</button></div>
               </div>
               <template v-else>
-                <p v-if="turn.text" class="stream-answer">{{ turn.text }}</p>
-                <p v-if="explaining && turnIndex === conversation.length - 1" class="stream-status" role="status">{{ mainPending?.status === 'queued' ? '正在排队，将接着前面完成的回答继续…' : verificationStage === 3 ? '正在核验引用与结论…' : verificationStage === 1 && capabilities.ragConfigured ? '正在检索相关知识…' : turn.text ? '正在回答…' : '正在连接模型…' }}</p>
+                <AiMessage v-if="turn.text" class="stream-answer" :text="turn.text" />
+                <p v-if="explaining && turnIndex === conversation.length - 1" class="stream-status" role="status">{{ mainPending?.status === 'queued' ? '正在排队，将接着前面完成的回答继续…' : mainPending?.phase === 'searching' ? '正在联网补充资料…' : verificationStage === 3 ? '正在核验引用与结论…' : verificationStage === 1 && capabilities.ragConfigured ? '正在检索相关知识…' : turn.text ? '正在回答…' : '正在连接模型…' }}</p>
                 <p v-if="turn.error" class="inline-error" role="alert">{{ turn.error }}</p>
               </template>
             </article>
@@ -1027,7 +1035,7 @@ onUnmounted(() => {
       </aside>
     </div>
 
-    <AiChatWindow v-for="chat in (readerVisible ? floatingChats : [])" :key="chat.id" :chat="chat" :windows="chats.state.windows" :turns="chats.turnsFor(chat.id)" :pending="chats.pending(chat.id)" :active="chats.state.activeWindowId === chat.id" :article-title="activeArticle.title" :shared-rounds="sharedRounds" :ai-configured="capabilities.aiConfigured" @send="submitChat" @stop="chats.cancel" @close="closeChatWindow" @minimize="minimizeChat" @activate="activateChat" @add="addChatWindow" @citation="openChatCitation" @feedback="sendFeedback" />
+    <AiChatWindow v-for="chat in (readerVisible ? floatingChats : [])" :key="chat.id" :chat="chat" :windows="chats.state.windows" :turns="chats.turnsFor(chat.id)" :pending="chats.pending(chat.id)" :active="chats.state.activeWindowId === chat.id" :article-title="activeArticle.title" :shared-rounds="sharedRounds" :ai-configured="capabilities.aiConfigured" :search-configured="!!capabilities.searchConfigured" @send="submitChat" @stop="chats.cancel" @close="closeChatWindow" @minimize="minimizeChat" @activate="activateChat" @add="addChatWindow" @citation="openChatCitation" @feedback="sendFeedback" />
     <div v-if="readerVisible && floatingChats.some(chat => chat.minimized)" class="chat-window-dock" aria-label="已收起的聊天窗口"><button v-for="chat in floatingChats.filter(item => item.minimized)" :key="chat.id" @click="activateChat(chat.id)">✦ {{ chat.name }} <small v-if="chats.pending(chat.id)">{{ chats.pending(chat.id)?.status === 'queued' ? '排队中' : '回答中' }}</small><span>展开</span></button></div>
     <div v-if="selectedQuote && !composerOpen" class="selection-toolbar" @mousedown.prevent :style="{ left: selectionPos.x + 'px', top: selectionPos.y + 'px' }">
       <button @click="explainSelection"><span v-html="icon('spark', 14)" />AI 解释</button><i /><button @click="openAnnotation"><span v-html="icon('comment', 14)" />批注</button>

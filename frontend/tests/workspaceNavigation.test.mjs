@@ -1,11 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import { JSDOM } from 'jsdom'
-import { parse, compileScript } from 'vue/compiler-sfc'
-import ts from 'typescript'
+import { compileSFC } from './vueSfc.mjs'
 
-const dom = new JSDOM('<meta name="theme-color"><div id="app"></div>', { url: 'http://localhost:5173/' })
+const dom = new JSDOM('<!doctype html><meta name="theme-color"><div id="app"></div>', { url: 'http://localhost:5173/' })
 for (const name of ['window', 'document', 'Document', 'Element', 'HTMLElement', 'SVGElement', 'Node', 'Event', 'DOMException', 'localStorage']) globalThis[name] = dom.window[name]
 dom.window.HTMLElement.prototype.scrollTo = () => {}
 let lastScrolled = ''
@@ -14,13 +12,8 @@ window.matchMedia = () => ({ matches: true })
 const { createApp, nextTick } = await import('vue')
 const { api } = await import('../src/api.ts')
 const { articles } = await import('../src/mock.ts')
-const { descriptor } = parse(readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8'))
-let source = compileScript(descriptor, { id: 'workspace-test', inlineTemplate: true }).content
-source = source.replace(/import (\w+) from ['"]\.\/components\/[^'"]+\.vue['"]/g, 'const $1 = { render: () => null }')
-  .replace(/from ['"]vue['"]/g, `from ${JSON.stringify(import.meta.resolve('vue'))}`)
-  .replace(/from ['"]\.\/([^'"]+)['"]/g, (_, path) => `from ${JSON.stringify(new URL(`../src/${path}.ts`, import.meta.url).href)}`)
-const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ESNext } }).outputText
-const App = (await import(`data:text/javascript;base64,${Buffer.from(js).toString('base64')}`)).default
+const messageURL = compileSFC(new URL('../src/components/AiMessage.vue', import.meta.url))
+const App = (await import(compileSFC(new URL('../src/App.vue', import.meta.url), { AiMessage: messageURL }))).default
 const flush = async (ms = 0) => { await new Promise(resolve => setTimeout(resolve, ms)); await nextTick() }
 const nav = text => [...document.querySelectorAll('.mobile-navigation button')].find(el => el.textContent === text)
 function search(text) {

@@ -1,9 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import { JSDOM } from 'jsdom'
-import { parse, compileScript } from 'vue/compiler-sfc'
-import ts from 'typescript'
+import { compileSFC } from './vueSfc.mjs'
 
 const dom = new JSDOM('<!doctype html><meta name="theme-color"><div id="app"></div>', { url: 'http://localhost/', pretendToBeVisual: true })
 for (const name of ['window', 'document', 'Document', 'Element', 'HTMLElement', 'SVGElement', 'Node', 'Event', 'DOMException', 'localStorage']) globalThis[name] = dom.window[name]
@@ -17,18 +15,9 @@ HTMLElement.prototype.scrollIntoView = () => {}
 const { createApp, nextTick } = await import('vue')
 const { api } = await import('../src/api.ts')
 const { articles } = await import('../src/mock.ts')
-function compile(file, transform = source => source) {
-  const url = new URL(file, import.meta.url)
-  const { descriptor } = parse(readFileSync(url, 'utf8'))
-  const source = transform(compileScript(descriptor, { id: file, inlineTemplate: true }).content)
-    .replace(/from ['"]([^'"]+)['"]/g, (_, path) => `from ${JSON.stringify(path.startsWith('.') ? new URL(path + '.ts', url).href : import.meta.resolve(path))}`)
-  const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ESNext } }).outputText
-  return `data:text/javascript;base64,${Buffer.from(js).toString('base64')}`
-}
-const popupURL = compile('../src/components/AiChatWindow.vue')
-const App = (await import(compile('../src/App.vue', source => source
-  .replace(/import AiChatWindow from ['"]\.\/components\/AiChatWindow.vue['"]/, `import AiChatWindow from '${popupURL}'`)
-  .replace(/import (\w+) from ['"]\.\/components\/[^'"]+\.vue['"]/g, 'const $1 = { render: () => null }')))).default
+const messageURL = compileSFC(new URL('../src/components/AiMessage.vue', import.meta.url))
+const popupURL = compileSFC(new URL('../src/components/AiChatWindow.vue', import.meta.url), { AiMessage: messageURL })
+const App = (await import(compileSFC(new URL('../src/App.vue', import.meta.url), { AiChatWindow: popupURL, AiMessage: messageURL }))).default
 const flush = async () => { await new Promise(resolve => setTimeout(resolve, 15)); await nextTick() }
 function fill(input, text) { input.value = text; input.dispatchEvent(new Event('input', { bubbles: true })) }
 const answer = summary => ({ mode: 'model', summary, steps: [], citations: [], checks: [], confidence: .8 })
@@ -38,7 +27,7 @@ test('real popup UI queues with shared context, keeps separate turns, restores d
   api.me = async () => ({ user: { id: 1, name: '学习者', role: 'learner' } })
   api.getStats = async () => ({ articleCount: 2, sectionCount: 4 })
   api.getCategories = async () => []
-  api.getCapabilities = async () => ({ aiConfigured: true, speechConfigured: false })
+  api.getCapabilities = async () => ({ aiConfigured: true, speechConfigured: false, searchConfigured: true })
   api.listArticles = async () => ({ items: articles.slice(0, 2), total: 2 })
   api.getArticle = async slug => articles.find(article => article.slug === slug)
   api.getAnnotations = async () => []
@@ -54,6 +43,8 @@ test('real popup UI queues with shared context, keeps separate turns, restores d
     fill(document.querySelector('.ai-panel textarea'), '主窗口的问题')
     await nextTick(); document.querySelector('.send-btn').click(); await flush()
     document.querySelector('.add-chat-window').click(); await flush()
+    assert.equal(calls[0].input.answerMode, 'balanced')
+    assert.equal(calls[0].input.webSearch, false, 'search is not enabled implicitly')
     const popup = document.querySelector('.floating-chat')
     assert.ok(popup)
     const popupId = popup.dataset.chatWindow
@@ -66,6 +57,10 @@ test('real popup UI queues with shared context, keeps separate turns, restores d
     assert.equal(calls.length, 1, 'Ctrl+Enter adds a newline without sending')
     const audience = popup.querySelector('[aria-label="子窗口学习程度"]')
     audience.value = '小学生'; audience.dispatchEvent(new Event('change', { bubbles: true }))
+    const scope = popup.querySelector('[aria-label="子窗口讲解范围"]')
+    scope.value = 'strict'; scope.dispatchEvent(new Event('change', { bubbles: true }))
+    const webToggle = popup.querySelector('input[type="checkbox"]')
+    webToggle.checked = true; webToggle.dispatchEvent(new Event('change', { bubbles: true }))
     input.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
     await flush()
     assert.match(popup.querySelector('.stream-status').textContent, /排队/)
@@ -74,6 +69,8 @@ test('real popup UI queues with shared context, keeps separate turns, restores d
     assert.equal(calls.length, 2)
     assert.equal(calls[1].input.history[1].content, '第一轮解释')
     assert.equal(calls[1].input.audience, '小学生')
+    assert.equal(calls[1].input.answerMode, 'strict')
+    assert.equal(calls[1].input.webSearch, true)
     calls[1].event({ type: 'done', explanation: answer('苹果的例子') }); calls[1].resolve(); await flush()
     assert.match(popup.textContent, /苹果的例子/)
     assert.doesNotMatch(document.querySelector('.ai-panel .conversation-thread').textContent, /苹果的例子/)

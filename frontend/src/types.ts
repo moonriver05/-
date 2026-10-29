@@ -45,7 +45,10 @@ export type Explanation = {
   kind?: 'conversation' | 'explanation'
   summary: string
   steps: { title: string; content: string }[]
-  citations: { section: string; quote: string; articleId?: number; articleSlug?: string; sectionId?: number }[]
+  citations: { section: string; quote: string; articleId?: number; articleSlug?: string; sectionId?: number; sourceUrl?: string; sourceType?: 'knowledge' | 'web' }[]
+  answerMode?: 'balanced' | 'strict'
+  grounding?: 'sourced' | 'mixed' | 'model'
+  webSearch?: { status: 'ok' | 'empty' | 'failed'; count: number; sources?: { title: string; url: string; summaryOnly: boolean }[] }
   retrieval?: { mode: 'chroma' | 'current_article'; reason?: string; count: number }
   confidence: number
   checks: string[]
@@ -65,6 +68,6 @@ export type Stats = {
 export type Category = { name: string; count: number; children: Category[] }
 export type Comment = { id: number; userId: number; body: string; author: string; avatar?: string; createdAt: string }
 export type User = { id: number; username: string; name: string; role: 'learner' | 'admin'; banned?: boolean; avatar?: string; bio?: string; location?: string; website?: string }
-export type Capabilities = { aiConfigured: boolean; speechConfigured: boolean; ragConfigured?: boolean }
+export type Capabilities = { aiConfigured: boolean; speechConfigured: boolean; ragConfigured?: boolean; searchConfigured?: boolean }
 export type ArticleInput = { title: string; category: string; kind: string; difficulty: string; content: string }
 export type FeedbackItem = { id: number; userId: number; articleId?: number; articleTitle: string; author: string; kind: string; body: string; status: 'pending' | 'resolved' | 'dismissed'; resolution: string; createdAt: string; reviewedAt?: string }

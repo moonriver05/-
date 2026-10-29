@@ -4,15 +4,18 @@ import { conversationHistory, type ConversationTurn, type StreamEvent } from './
 export type ChatWindow = {
   id: number; name: string; prompt: string; audience: string; style: string
   minimized: boolean; x: number; y: number
+  answerMode: 'balanced' | 'strict'; webSearch: boolean
 }
 export type ChatTurn = ConversationTurn & {
   id: number; windowId: number; windowName: string; articleId: number
   audience: string; style: string
+  answerMode: 'balanced' | 'strict'; webSearch: boolean
   status: 'queued' | 'running' | 'done' | 'error' | 'cancelled'
   phase: string
 }
 type ChatInput = {
   articleId: number; question: string; audience: string; style: string
+  answerMode: 'balanced' | 'strict'; webSearch: boolean
   history: { role: string; content: string }[]
 }
 type Options = {
@@ -23,7 +26,7 @@ type Options = {
 
 export function createSharedChats(options: Options) {
   const state = reactive({
-    windows: [{ id: 1, name: '主窗口', prompt: '', audience: '本科生', style: '直觉 + 严谨', minimized: false, x: 0, y: 0 }] as ChatWindow[],
+    windows: [{ id: 1, name: '主窗口', prompt: '', audience: '本科生', style: '直觉 + 严谨', minimized: false, x: 0, y: 0, answerMode: 'balanced', webSearch: false }] as ChatWindow[],
     turns: [] as ChatTurn[], activeWindowId: 1
   })
   let windowSequence = 1, turnSequence = 0, epoch = 0
@@ -46,7 +49,7 @@ export function createSharedChats(options: Options) {
     try {
       // Build history at dequeue time: an earlier window's completed answer must
       // be available to a question queued while that answer was still streaming.
-      await options.request({ articleId: turn.articleId, question: turn.question, audience: turn.audience, style: turn.style, history: sharedHistory() }, event => {
+      await options.request({ articleId: turn.articleId, question: turn.question, audience: turn.audience, style: turn.style, answerMode: turn.answerMode, webSearch: turn.webSearch, history: sharedHistory() }, event => {
         if (!valid()) return
         if (event.type === 'delta') turn.text += event.text ?? ''
         if (event.type === 'phase') turn.phase = event.text ?? 'generating'
@@ -81,7 +84,7 @@ export function createSharedChats(options: Options) {
       const oldest = state.turns.findIndex(turn => turn.status !== 'queued' && turn.status !== 'running')
       if (oldest >= 0) state.turns.splice(oldest, 1)
     }
-    state.turns.push({ id: ++turnSequence, windowId, windowName: owner.name, articleId: options.articleId(), question, audience: owner.audience, style: owner.style, text: '', status: 'queued', phase: 'generating' })
+    state.turns.push({ id: ++turnSequence, windowId, windowName: owner.name, articleId: options.articleId(), question, audience: owner.audience, style: owner.style, answerMode: owner.answerMode, webSearch: owner.webSearch, text: '', status: 'queued', phase: 'generating' })
     owner.prompt = ''
     options.onUpdate?.(windowId, true)
     void pump()
@@ -109,7 +112,7 @@ export function createSharedChats(options: Options) {
     if (state.windows.length >= 4) return null
     const main = state.windows[0]!
     const id = ++windowSequence
-    state.windows.push({ id, name: `窗口 ${id}`, prompt: '', audience: main.audience, style: main.style, minimized: false, x, y })
+    state.windows.push({ id, name: `窗口 ${id}`, prompt: '', audience: main.audience, style: main.style, minimized: false, x, y, answerMode: main.answerMode, webSearch: false })
     state.activeWindowId = id
     return id
   }
@@ -126,7 +129,7 @@ export function createSharedChats(options: Options) {
     ++epoch
     active?.controller.abort()
     state.turns = []
-    for (const window of state.windows) window.prompt = ''
+    for (const window of state.windows) { window.prompt = ''; window.webSearch = false }
   }
 
   return { state, pending, turnsFor, sharedHistory, submit, cancel, addWindow, closeWindow, clear }

@@ -1,9 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import { JSDOM } from 'jsdom'
-import { parse, compileScript } from 'vue/compiler-sfc'
-import ts from 'typescript'
+import { compileSFC } from './vueSfc.mjs'
 
 const dom = new JSDOM('<!doctype html><meta name="theme-color"><div id="app"></div>', { url: 'http://localhost/', pretendToBeVisual: true })
 for (const name of ['window', 'document', 'Document', 'Element', 'HTMLElement', 'HTMLImageElement', 'HTMLDetailsElement', 'SVGElement', 'Node', 'Event', 'DOMException', 'localStorage']) globalThis[name] = dom.window[name]
@@ -20,19 +18,8 @@ const { createApp, nextTick } = await import('vue')
 const { api } = await import('../src/api.ts')
 const { articles } = await import('../src/mock.ts')
 
-function compile(file, transform = source => source) {
-  const url = new URL(file, import.meta.url)
-  const { descriptor } = parse(readFileSync(url, 'utf8'))
-  let source = transform(compileScript(descriptor, { id: file, inlineTemplate: true }).content)
-  source = source.replace(/import ['"][^'"]+\.css['"]/g, '')
-    .replace(/from ['"]([^'"]+)['"]/g, (_, specifier) => `from ${JSON.stringify(specifier.startsWith('.') ? new URL(specifier + '.ts', url).href : import.meta.resolve(specifier))}`)
-  const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ESNext } }).outputText
-  return `data:text/javascript;base64,${Buffer.from(js).toString('base64')}`
-}
-const wikiURL = compile('../src/components/WikiContent.vue')
-const appURL = compile('../src/App.vue', source => source
-  .replace(/import WikiContent from ['"]\.\/components\/WikiContent.vue['"]/, `import WikiContent from '${wikiURL}'`)
-  .replace(/import (\w+) from ['"]\.\/components\/[^'"]+\.vue['"]/g, 'const $1 = { render: () => null }'))
+const wikiURL = compileSFC(new URL('../src/components/WikiContent.vue', import.meta.url))
+const appURL = compileSFC(new URL('../src/App.vue', import.meta.url), { WikiContent: wikiURL })
 const App = (await import(appURL)).default
 const flush = async () => { await new Promise(resolve => setTimeout(resolve, 15)); await nextTick() }
 
