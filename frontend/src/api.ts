@@ -38,7 +38,7 @@ async function streamExplanation(input: ExplainInput, onEvent: (event: StreamEve
     if (!response.ok) {
       if (response.status === 401) window.dispatchEvent(new Event('mathwiki:login-required'))
       const payload = await response.json().catch(() => ({})) as { error?: string }
-      throw new ApiError(payload.error || `请求失败（${response.status}）`, response.status)
+      throw new ApiError(payload.error || `请求失败（${response.status}）`, response.status, Number(response.headers.get('Retry-After')) || 0)
     }
     await readExplanationStream(response, onEvent)
   } catch (error) {

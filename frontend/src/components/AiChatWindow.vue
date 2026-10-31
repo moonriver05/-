@@ -76,7 +76,7 @@ watch(() => [props.active, props.chat.minimized], focusInput)
         </div>
         <template v-else>
           <AiMessage v-if="turn.text" class="stream-answer" :text="turn.text" />
-          <p v-if="turn.status === 'queued' || turn.status === 'running'" class="stream-status" role="status">{{ turn.status === 'queued' ? '正在排队，将接着前面完成的回答继续…' : turn.phase === 'searching' ? '正在联网补充资料…' : turn.phase === 'verifying' ? '正在核验引用与结论…' : turn.phase === 'retrieving' ? '正在检索相关知识…' : turn.text ? '正在回答…' : '正在连接模型…' }}</p>
+          <p v-if="turn.status === 'queued' || turn.status === 'running'" class="stream-status" role="status">{{ turn.status === 'queued' ? turn.phase === 'cooldown' ? '服务繁忙，正在等待后继续排队…' : '正在排队，将接着前面完成的回答继续…' : turn.phase === 'searching' ? '正在联网补充资料…' : turn.phase === 'verifying' ? '正在核验引用与结论…' : turn.phase === 'retrieving' ? '正在检索相关知识…' : turn.text ? '正在回答…' : '正在连接模型…' }}</p>
           <p v-if="turn.error" class="inline-error" role="alert">{{ turn.error }}</p>
         </template>
       </article>

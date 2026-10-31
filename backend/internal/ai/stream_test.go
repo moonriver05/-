@@ -38,6 +38,9 @@ func TestStreamDeliversDraftBeforeVerificationAndPassesHistory(t *testing.T) {
 			}
 			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
 		} else {
+			if len(p.Messages) < 2 || !strings.Contains(p.Messages[1].Content, `"content":"上轮问题"`) || !strings.Contains(p.Messages[1].Content, `"content":"上轮回答"`) || !strings.Contains(p.Messages[1].Content, "不是事实证据") {
+				t.Error("verification lost follow-up context or its evidence boundary")
+			}
 			if len(events) != 4 || events[1].Type != "delta" || events[2].Text != "是合并。" || events[3].Text != "verifying" {
 				t.Errorf("draft must arrive before verification: %+v", events)
 			}

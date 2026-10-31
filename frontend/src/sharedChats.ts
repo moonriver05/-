@@ -31,6 +31,8 @@ export function createSharedChats(options: Options) {
   })
   let windowSequence = 1, turnSequence = 0, epoch = 0
   let active: { controller: AbortController; turnId: number } | null = null
+  let resumeAt = 0
+  let resumeTimer: ReturnType<typeof setTimeout> | undefined
   const pending = (windowId: number) => state.turns.find(turn => turn.windowId === windowId && (turn.status === 'queued' || turn.status === 'running'))
   const turnsFor = (windowId: number) => state.turns.filter(turn => turn.windowId === windowId).slice(-20)
   const sharedHistory = () => conversationHistory(state.turns.filter(turn => turn.status === 'done'))
@@ -39,12 +41,20 @@ export function createSharedChats(options: Options) {
     if (active) return
     const turn = state.turns.find(item => item.status === 'queued')
     if (!turn) return
+    if (Date.now() < resumeAt) {
+      // Wait before sending the remaining queue, never replay a failed request.
+      for (const item of state.turns) if (item.status === 'queued') item.phase = 'cooldown'
+      if (!resumeTimer) resumeTimer = setTimeout(() => { resumeTimer = undefined; void pump() }, resumeAt - Date.now())
+      options.onUpdate?.(turn.windowId)
+      return
+    }
     const owner = state.windows.find(window => window.id === turn.windowId)
     if (!owner) { turn.status = 'cancelled'; void pump(); return }
     const generation = epoch
     const controller = new AbortController()
     active = { controller, turnId: turn.id }
     turn.status = 'running'
+    turn.phase = 'generating'
     const valid = () => generation === epoch && !controller.signal.aborted && turn.status === 'running'
     try {
       // Build history at dequeue time: an earlier window's completed answer must
@@ -65,6 +75,12 @@ export function createSharedChats(options: Options) {
         turn.result = undefined
         turn.status = controller.signal.aborted ? 'cancelled' : 'error'
         turn.error = controller.signal.aborted ? '已停止。以上内容尚未完成核验。' : error instanceof Error ? error.message : '解释生成失败，请重试'
+        const busy = error as { status?: number; retryAfter?: number } | null
+        if (!controller.signal.aborted && (busy?.status === 429 || busy?.status === 503)) {
+          const seconds = Number.isFinite(busy.retryAfter) ? Math.min(3600, Math.max(1, busy.retryAfter!)) : 2
+          resumeAt = Date.now() + seconds * 1000
+          turn.error += `。请在 ${Math.ceil(seconds)} 秒后重试；其他排队问题会等待后继续。`
+        }
         if (!owner.prompt) owner.prompt = turn.question
       }
     } finally {
@@ -127,6 +143,9 @@ export function createSharedChats(options: Options) {
 
   function clear() {
     ++epoch
+    if (resumeTimer) clearTimeout(resumeTimer)
+    resumeTimer = undefined
+    // Retain the account's cooldown across article switches; clear all questions.
     active?.controller.abort()
     state.turns = []
     for (const window of state.windows) { window.prompt = ''; window.webSearch = false }

@@ -105,3 +105,48 @@ test('failed and demo responses are excluded; history and memory remain bounded'
   assert.ok(chats.addWindow()); assert.ok(chats.addWindow()); assert.ok(chats.addWindow())
   assert.equal(chats.addWindow(), null)
 })
+
+test('busy responses pause the queue until Retry-After without replaying failed paid requests', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+  const { chats, calls, ask, finish } = session()
+  try {
+    const second = chats.addWindow()
+    ask(1, '第一个问题'); ask(second, '第二个问题')
+    calls[0].reject(Object.assign(new Error('提问过于频繁'), { status: 429, retryAfter: 10 }))
+    await tick()
+    assert.equal(calls.length, 1)
+    assert.equal(chats.pending(second).phase, 'cooldown')
+    assert.match(chats.turnsFor(1)[0].error, /10 秒/)
+    assert.equal(chats.state.windows[0].prompt, '第一个问题')
+    t.mock.timers.tick(9999); await tick()
+    assert.equal(calls.length, 1)
+    t.mock.timers.tick(1); await tick()
+    assert.equal(calls.length, 2)
+    assert.equal(calls[1].input.question, '第二个问题')
+    assert.deepEqual(calls[1].input.history, [])
+    finish(1, '第二个问题完成'); await tick()
+    assert.equal(chats.sharedHistory().length, 2)
+  } finally { chats.clear(); t.mock.timers.reset() }
+})
+
+test('clearing a busy queue prevents stale sends and new questions still respect the account cooldown', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+  const { chats, calls, ask, finish, setArticle } = session()
+  try {
+    const second = chats.addWindow()
+    ask(1, '服务繁忙'); ask(second, '旧词条排队')
+    calls[0].reject(Object.assign(new Error('服务繁忙'), { status: 503, retryAfter: 5 }))
+    await tick()
+    chats.cancel(second)
+    chats.clear(); setArticle(9)
+    ask(second, '新词条问题')
+    t.mock.timers.tick(4999); await tick()
+    assert.equal(calls.length, 1)
+    t.mock.timers.tick(1); await tick()
+    assert.equal(calls.length, 2)
+    assert.equal(calls[1].input.articleId, 9)
+    assert.equal(calls[1].input.question, '新词条问题')
+    finish(1, '新回答'); await tick()
+    assert.equal(chats.state.turns.length, 1)
+  } finally { chats.clear(); t.mock.timers.reset() }
+})
