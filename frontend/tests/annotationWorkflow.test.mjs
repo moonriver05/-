@@ -19,9 +19,57 @@ const { api } = await import('../src/api.ts')
 const { articles } = await import('../src/mock.ts')
 
 const wikiURL = compileSFC(new URL('../src/components/WikiContent.vue', import.meta.url))
-const appURL = compileSFC(new URL('../src/App.vue', import.meta.url), { WikiContent: wikiURL })
+const moderationURL = compileSFC(new URL('../src/components/ModerationPanel.vue', import.meta.url), { WikiContent: wikiURL })
+const appURL = compileSFC(new URL('../src/App.vue', import.meta.url), { WikiContent: wikiURL, ModerationPanel: moderationURL })
 const App = (await import(appURL)).default
 const flush = async () => { await new Promise(resolve => setTimeout(resolve, 15)); await nextTick() }
+
+test('saved plain-text examples typeset pasted formulas in the reader and full moderation preview', async () => {
+  const saved = { ...api }
+  const formula = '\\[\\frac{x+x^3}{1+x^4}\\]'
+  const inline = '\\(u\\ge 2\\)'
+  const content = '题目\n已知 ' + formula + '\n求 ' + inline + ' 时的函数值。\n<img src="https://example.org/test.png">'
+  const article = { ...articles[0], kind: '例题', title: '整体代换', excerpt: '题目 已知 \\[\\frac{x+', sections: [{ id: 101, title: '正文', content }] }
+  api.me = async () => ({ user: { id: 1, name: '管理员', role: 'admin' } })
+  api.getStats = async () => ({ articleCount: 1, sectionCount: 1 })
+  api.getCategories = async () => []
+  api.getCapabilities = async () => ({ aiConfigured: false, speechConfigured: false })
+  api.listArticles = async () => ({ items: [article], total: 1 })
+  api.getArticle = async () => article
+  api.getAnnotations = async () => []
+  api.markRead = async () => ({})
+  api.adminArticles = async () => ({ items: [article], total: 1 })
+  api.adminArticle = async () => article
+  const app = createApp(App)
+  app.mount('#app')
+  try {
+    await flush()
+    document.querySelector('.article-card').click()
+    await flush()
+    const reader = document.querySelector('.article-body .wiki-content')
+    assert.equal(reader.querySelectorAll('.katex').length, 2)
+    assert.equal(reader.querySelectorAll('.katex-display').length, 1)
+    assert.equal(reader.querySelector('img'), null)
+    assert.match(reader.textContent, /<img src=/)
+    assert.doesNotMatch(document.querySelector('.article-card').textContent, /\\frac/)
+
+    const moderation = [...document.querySelectorAll('.topbar button')].find(button => button.textContent === '审核管理')
+    moderation.click()
+    await flush()
+    const list = document.querySelector('.moderation-note')
+    assert.doesNotMatch(list.textContent, /\\frac/)
+    const previewButton = [...list.querySelectorAll('button')].find(button => button.textContent === '查看完整正文')
+    previewButton.click()
+    await flush()
+    const preview = document.querySelector('.management-preview')
+    assert.equal(preview.querySelectorAll('.katex').length, 2)
+    assert.equal(preview.querySelectorAll('.katex-display').length, 1)
+  } finally {
+    app.unmount()
+    window.getSelection().removeAllRanges()
+    Object.assign(api, saved)
+  }
+})
 
 test('only the selected note highlights: publish, reload, switch users, toggle off and delete on mobile', async () => {
   const saved = { ...api }

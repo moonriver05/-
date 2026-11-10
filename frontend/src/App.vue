@@ -9,6 +9,7 @@ import AiMessage from './components/AiMessage.vue'
 import { safeSourceURL } from './aiText'
 import { answerBadge, groundingNotice, webSearchNotice } from './answerStatus'
 import WikiContent from './components/WikiContent.vue'
+import { articleExcerpt } from './wikiMedia'
 import AuthPage from './components/AuthPage.vue'
 import ArticleComments from './components/ArticleComments.vue'
 import ModerationPanel from './components/ModerationPanel.vue'
@@ -904,7 +905,7 @@ onUnmounted(() => {
           <div v-if="listError" class="inline-error" role="alert">{{ listError }}<button @click="loadArticles()">重试</button></div>
           <button v-for="article in filteredArticles" :key="article.id" class="article-card" :class="{ active: activeArticle.id === article.id }" @click="selectArticle(article)">
             <div class="article-card-top"><span class="type-icon">{{ article.kind === '算法' ? 'ƒ' : article.kind === '例题' ? '∑' : '◫' }}</span><span class="difficulty" :data-level="article.difficulty">{{ article.difficulty }}</span><span class="saved" :class="{ on: article.saved }" v-html="icon('bookmark', 15)" /></div>
-            <h3>{{ article.title }}</h3><p>{{ article.excerpt }}</p>
+            <h3>{{ article.title }}</h3><p>{{ articleExcerpt(article.excerpt) }}</p>
             <div class="article-meta"><span>{{ article.category }}</span><span>{{ article.readMinutes }} 分钟</span></div>
           </button>
           <div v-if="!loadingList && !filteredArticles.length && !listError" class="empty-state"><span v-html="icon('search', 28)" /><strong>{{ query ? '没有找到匹配的词条' : '当前分类暂无条目' }}</strong><small>{{ query ? '试试其他标题关键词，或回到全部条目' : '可新建条目，或选择其他分类' }}</small><button class="text-btn" @click="chooseCollection('全部条目')">查看全部条目</button></div>
@@ -1058,6 +1059,7 @@ onUnmounted(() => {
             <label>学科分类<select v-model="articleDraft.category"><template v-for="subject in subjects" :key="subject.name"><option :value="subject.name">{{ subject.name }}</option><option v-for="child in subject.children" :key="child.name" :value="child.name">{{ child.name }}</option></template></select></label>
             <div class="dialog-columns"><label>条目类型<select v-model="articleDraft.kind"><option>概念</option><option>算法</option><option>例题</option></select></label><label>学习难度<select v-model="articleDraft.difficulty"><option>入门</option><option>进阶</option><option>高级</option></select></label></div>
             <label>条目正文<textarea v-model="articleDraft.content" required maxlength="100000" rows="7" placeholder="用中文描述定义、前提、步骤或例题…" /></label>
+            <p class="muted">可直接粘贴 LaTeX。行内公式用 <code>\(...\)</code>，独立公式用 <code>\[...\]</code> 或 <code>$$...$$</code>。保存后可在审核管理查看排版。</p>
             <p class="muted">保存后可在知识库阅读，内容标记为“社区投稿 · 待核验”。提交的原创内容按 CC BY-SA 4.0 分享。</p>
           </template>
           <label v-else-if="dialog === 'category'">分类名称<input v-model="categoryName" required maxlength="80" placeholder="例如：计算几何" /></label>

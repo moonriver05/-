@@ -9,6 +9,35 @@ export const imageMode: ImageMode = ['external', 'mirror-only', 'off'].includes(
 const allowedOrigins = new Set<string>((buildEnv.VITE_MEDIA_ALLOWED_ORIGINS ?? '').split(',').map((s: string) => s.trim()).filter(Boolean))
 let manifestPromise: Promise<MediaManifest> | undefined
 
+export function articleExcerpt(text: string): string {
+  // An excerpt can end halfway through a formula, so keep only its opening prose.
+  const formulaStart = text.search(/\\(?:\[|\()|\$\$/)
+  if (formulaStart < 0) return text
+  const prose = text.slice(0, formulaStart).trimEnd()
+  return prose ? prose + '…' : '含数学公式'
+}
+
+export function plainWikiHTML(text: string): string {
+  const escape = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  const formulas = /\\\[([\s\S]{1,2000}?)\\\]|\\\(([^\n]{1,2000}?)\\\)|\$\$([\s\S]{1,2000}?)\$\$/g
+  let from = 0
+  let html = ''
+  let count = 0
+  for (const match of text.matchAll(formulas)) {
+    const raw = match[0]
+    const tex = match[1] ?? match[2] ?? match[3] ?? ''
+    const display = match[2] == null
+    html += escape(text.slice(from, match.index))
+    if (++count <= 48) {
+      html += `<span data-tex="${escape(tex)}" data-display="${display}">${escape(raw)}</span>`
+    } else {
+      html += escape(raw)
+    }
+    from = match.index + raw.length
+  }
+  return `<p class="plain-section">${html}${escape(text.slice(from))}</p>`
+}
+
 function https(value: string) {
   try { return new URL(value).protocol === 'https:' } catch { return false }
 }

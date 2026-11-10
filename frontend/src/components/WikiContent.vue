@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { imageMode, loadMediaManifest, safeWikiHTML, type MediaEntry } from '../wikiMedia'
+import { imageMode, loadMediaManifest, plainWikiHTML, safeWikiHTML, type MediaEntry } from '../wikiMedia'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
 import { paintHighlights, type Highlight } from '../annotationHighlights'
@@ -10,7 +10,7 @@ const emit = defineEmits<{ annotationClick: [ids: number[]] }>()
 const root = ref<HTMLElement>()
 const manifest = ref<Record<string, MediaEntry>>({})
 const mediaReady = ref(!import.meta.env?.VITE_MEDIA_MANIFEST_URL)
-const clean = computed(() => safeWikiHTML(props.html || `<p class="plain-section">${(props.text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`, manifest.value, mediaReady.value ? imageMode : 'off'))
+const clean = computed(() => safeWikiHTML(props.html || plainWikiHTML(props.text ?? ''), manifest.value, mediaReady.value ? imageMode : 'off'))
 
 function highlight() {
   if (root.value) paintHighlights(root.value, props.annotations ?? [], props.activeAnnotationId)
