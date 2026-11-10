@@ -24,12 +24,14 @@ const appURL = compileSFC(new URL('../src/App.vue', import.meta.url), { WikiCont
 const App = (await import(appURL)).default
 const flush = async () => { await new Promise(resolve => setTimeout(resolve, 15)); await nextTick() }
 
-test('saved plain-text examples typeset pasted formulas in the reader and full moderation preview', async () => {
+test('saved examples typeset pasted formulas and an administrator can append a dated example', async () => {
   const saved = { ...api }
   const formula = '\\[\\frac{x+x^3}{1+x^4}\\]'
   const inline = '\\(u\\ge 2\\)'
   const content = '题目\n已知 ' + formula + '\n求 ' + inline + ' 时的函数值。\n<img src="https://example.org/test.png">'
-  const article = { ...articles[0], kind: '例题', title: '整体代换', excerpt: '题目 已知 \\[\\frac{x+', sections: [{ id: 101, title: '正文', content }] }
+  const article = { ...articles[0], pageId: -50, published: true, kind: '例题', title: '整体代换', excerpt: '题目 已知 \\[\\frac{x+', sections: [{ id: 101, title: '正文', content, position: 1 }] }
+  const supplementedAt = '2026-11-10T05:30:00Z'
+  let submitted
   api.me = async () => ({ user: { id: 1, name: '管理员', role: 'admin' } })
   api.getStats = async () => ({ articleCount: 1, sectionCount: 1 })
   api.getCategories = async () => []
@@ -40,6 +42,10 @@ test('saved plain-text examples typeset pasted formulas in the reader and full m
   api.markRead = async () => ({})
   api.adminArticles = async () => ({ items: [article], total: 1 })
   api.adminArticle = async () => article
+  api.appendArticleSupplement = async (id, draft) => {
+    submitted = { id, title: draft.title, content: draft.content }
+    return { section: { id: 102, title: draft.title, content: draft.content, position: 2, supplementedAt }, updatedAt: supplementedAt }
+  }
   const app = createApp(App)
   app.mount('#app')
   try {
@@ -65,6 +71,26 @@ test('saved plain-text examples typeset pasted formulas in the reader and full m
     const preview = document.querySelector('.management-preview')
     assert.equal(preview.querySelectorAll('.katex').length, 2)
     assert.equal(preview.querySelectorAll('.katex-display').length, 1)
+
+    const closeModeration = [...document.querySelectorAll('.content-management button')].find(button => button.textContent === '关闭')
+    closeModeration.click()
+    await nextTick()
+    document.querySelector('.append-supplement').click()
+    await nextTick()
+    const form = document.querySelector('.action-dialog form')
+    for (const [selector, value] of [['input', '第二道题'], ['textarea', inline]]) {
+      const field = form.querySelector(selector)
+      field.value = value
+      field.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await flush()
+    assert.deepEqual(submitted, { id: article.id, title: '第二道题', content: inline })
+    assert.deepEqual([...document.querySelectorAll('.article-body section[data-section]')].map(section => section.id), ['section-101', 'section-102'])
+    assert.equal(document.querySelector('#section-102 time').getAttribute('datetime'), supplementedAt)
+    assert.match(document.querySelector('#section-102 time').textContent, /2026/)
+    assert.equal(document.querySelectorAll('#section-102 .katex').length, 1)
+    assert.equal(scrolled.id, 'section-102')
   } finally {
     app.unmount()
     window.getSelection().removeAllRanges()

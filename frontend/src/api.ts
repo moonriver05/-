@@ -1,4 +1,4 @@
-import type { Annotation, Article, Explanation, Stats, Category, Comment, Capabilities, ArticleInput, User, FeedbackItem } from './types'
+import type { Annotation, Article, Explanation, Stats, Category, Comment, Capabilities, ArticleInput, Section, User, FeedbackItem } from './types'
 import { readExplanationStream, type StreamEvent } from './explanationStream.ts'
 
 type AnnotationInput = {
@@ -144,6 +144,8 @@ export const api = {
   getCapabilities: () => request<Capabilities>('/capabilities'),
   listArticles: (params: Record<string, string>) => request<{ items: Article[]; total: number }>(`/articles?${new URLSearchParams({ ...params, format: 'page', limit: '50' })}`),
   createArticle: (input: ArticleInput) => request<Article>('/articles', { method: 'POST', body: JSON.stringify(input) }),
+  appendArticleSupplement: (id: number, input: Pick<Section, 'title' | 'content'>) =>
+    request<{ section: Section; updatedAt: string }>(`/admin/articles/${id}/supplements`, { method: 'POST', body: JSON.stringify(input) }),
   markRead: (id: number) => request(`/articles/${id}/read`, { method: 'PUT', body: '{}' }),
   getComments: (id: number) => request<Comment[]>(`/annotations/${id}/comments`),
   createComment: (id: number, body: string) => request<Comment>(`/annotations/${id}/comments`, { method: 'POST', body: JSON.stringify({ body }) }),

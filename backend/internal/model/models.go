@@ -36,17 +36,18 @@ type Article struct {
 }
 
 type Section struct {
-	ID          uint      `json:"id" gorm:"primaryKey"`
-	ArticleID   uint      `json:"articleId" gorm:"index;not null"`
-	Position    int       `json:"position" gorm:"index"`
-	Title       string    `json:"title" gorm:"type:longtext"`
-	Content     string    `json:"content" gorm:"type:longtext"`
-	ContentHTML string    `json:"contentHtml" gorm:"type:longtext"`
-	Level       int       `json:"level"`
-	Hidden      bool      `json:"-" gorm:"default:false"`
-	Formulae    string    `json:"formulae,omitempty" gorm:"type:json"`
-	CreatedAt   time.Time `json:"-"`
-	UpdatedAt   time.Time `json:"-"`
+	ID             uint       `json:"id" gorm:"primaryKey"`
+	ArticleID      uint       `json:"articleId" gorm:"index;not null"`
+	Position       int        `json:"position" gorm:"index"`
+	Title          string     `json:"title" gorm:"type:longtext"`
+	Content        string     `json:"content" gorm:"type:longtext"`
+	ContentHTML    string     `json:"contentHtml" gorm:"type:longtext"`
+	Level          int        `json:"level"`
+	Hidden         bool       `json:"-" gorm:"default:false"`
+	Formulae       string     `json:"formulae,omitempty" gorm:"type:json"`
+	SupplementedAt *time.Time `json:"supplementedAt,omitempty"`
+	CreatedAt      time.Time  `json:"-"`
+	UpdatedAt      time.Time  `json:"-"`
 }
 
 type User struct {

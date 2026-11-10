@@ -86,6 +86,7 @@ func (s *Server) Router() *gin.Engine {
 	v1.PATCH("/admin/articles/:id", requireAdmin, s.reviewArticle)
 	v1.DELETE("/admin/articles/:id", requireAdmin, s.deleteArticle)
 	v1.POST("/admin/articles/:id/restore", requireAdmin, s.restoreArticle)
+	v1.POST("/admin/articles/:id/supplements", requireAdmin, s.appendArticleSupplement)
 	v1.GET("/admin/feedback", requireAdmin, s.feedbackList)
 	v1.PATCH("/admin/feedback/:id", requireAdmin, s.reviewFeedback)
 	v1.GET("/feedback/mine", requireLogin, s.feedbackList)

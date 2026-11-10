@@ -157,13 +157,16 @@ const detailError = ref('')
 const totalArticles = ref(0)
 const page = ref(1)
 const menu = ref<'library' | 'article' | null>(null)
-const dialog = ref<'article' | 'category' | 'feedback' | 'connection' | null>(null)
+type ArticleDialog = 'article' | 'category' | 'feedback' | 'connection' | 'supplement'
+const dialog = ref<ArticleDialog | null>(null)
 const dialogError = ref('')
 const submitting = ref(false)
 const categoryName = ref('')
 const feedbackText = ref('')
 const feedbackArticleId = ref(0)
 const articleDraft = reactive({ title: '', category: '数学基础', kind: '概念', difficulty: '入门', content: '' })
+const supplementDraft = reactive({ title: '', content: '' })
+const supplementTarget = ref<Pick<Article, 'id' | 'title'> | null>(null)
 const noteSort = ref('最相关')
 const noteFilter = ref<number | null>(null)
 const expandedNotes = ref<number[]>([])
@@ -175,6 +178,7 @@ const favoriteBusy = ref(false)
 const annotationBusy = ref(false)
 const likesBusy = ref<number[]>([])
 const user = ref<User | null>(null)
+const canAppendSupplement = computed(() => user.value?.role === 'admin' && activeArticle.value.published && (activeArticle.value.pageId ?? 0) < 0)
 const authOpen = ref(false)
 const moderationOpen = ref(false)
 const feedbackOpen = ref(false)
@@ -616,9 +620,15 @@ function toggleSubject(name: string) {
   collapsedSubjects.value = collapsedSubjects.value.includes(name) ? collapsedSubjects.value.filter(item => item !== name) : [...collapsedSubjects.value, name]
 }
 
-function openDialog(name: 'article' | 'category' | 'feedback' | 'connection') {
+function openDialog(name: ArticleDialog) {
   if (name !== 'connection' && !requireAccount()) return
   if ((name === 'article' || name === 'category') && user.value?.role !== 'admin') { showToast('创建条目和分类需要管理员权限'); return }
+  if (name === 'supplement') {
+    if (!canAppendSupplement.value) return
+    const { id, title } = activeArticle.value
+    supplementTarget.value = { id, title }
+    Object.assign(supplementDraft, { title: '', content: '' })
+  }
   dialog.value = name
   dialogError.value = ''
   menu.value = null
@@ -651,6 +661,17 @@ async function submitDialog() {
       subjects.value = await api.getCategories()
       Object.assign(articleDraft, { title: '', content: '' })
       showToast('条目已提交审核，通过后会在知识库公开')
+    } else if (dialog.value === 'supplement' && supplementTarget.value) {
+      const { id } = supplementTarget.value
+      const { section, updatedAt } = await api.appendArticleSupplement(id, supplementDraft)
+      if (activeArticle.value.id === id) {
+        const sections = activeArticle.value.sections.filter(item => item.id !== section.id)
+        sections.push(section)
+        sections.sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || a.id - b.id)
+        activeArticle.value = { ...activeArticle.value, sections, updatedAt }
+        nextTick(() => document.getElementById(`section-${section.id}`)?.scrollIntoView({ block: 'start' }))
+      }
+      showToast('补充小节已发布')
     } else if (dialog.value === 'feedback') {
       if (!feedbackText.value.trim()) throw new Error('请填写补充或纠错内容')
       await api.feedback(feedbackArticleId.value, 'content_suggestion', feedbackText.value.trim())
@@ -937,6 +958,7 @@ onUnmounted(() => {
             <div class="article-rule" />
             <section v-for="(section, index) in activeArticle.sections" :id="`section-${section.id}`" :key="section.id" :data-section="section.id" :class="{ 'intro-section': activeArticle.contentVersion === 2 && section.position === 0, 'sub-section': (section.level ?? 2) > 2 }">
               <div class="section-heading"><span>{{ String(index + 1).padStart(2, '0') }}</span><component :is="(section.level ?? 2) > 2 ? 'h3' : 'h2'">{{ section.title }}</component><button v-if="section.content" class="section-annotate" :aria-label="`批注${section.title}`" @click="annotateSection(section)">批注</button></div>
+              <p v-if="section.supplementedAt" class="supplement-date">补充于 <time :datetime="section.supplementedAt">{{ new Date(section.supplementedAt).toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' }) }}</time></p>
               <WikiContent :html="section.contentHtml" :text="section.content" :annotations="highlightsFor(section.id)" :active-annotation-id="activeAnnotationId" @annotation-click="deselectHighlightedNote" />
               <div v-if="section.formula" class="formula-card"><code>{{ section.formula }}</code><button title="复制公式" @click="copyText(section.formula)">复制</button></div>
               <button v-if="sectionNotes.get(section.id)?.length" class="margin-note" :aria-label="`查看${section.title}关联批注`" title="查看关联批注" @click="showSectionNotes(section.id)">
@@ -944,6 +966,7 @@ onUnmounted(() => {
               </button>
             </section>
             <div v-if="!activeArticle.sections.some(s => s.content.trim())" class="coming-soon"><span>暂无可展示的正文</span><p>请对照原始词条，或提交内容问题反馈。</p><button @click="openDialog('feedback')">反馈问题</button></div>
+            <button v-if="canAppendSupplement" class="text-btn append-supplement" @click="openDialog('supplement')">{{ activeArticle.kind === '例题' ? '＋ 补充例题' : '＋ 补充小节' }}</button>
             <footer class="article-footer"><span>{{ activeArticle.sourceUrl ? '来源：中文维基参考资料' : '社区投稿 · ' + articleReviewLabel(activeArticle.reviewStatus) }}</span><button @click="openDialog('feedback')">提出补充 / 纠错</button><a v-if="activeArticle.sourceUrl" :href="activeArticle.sourceUrl" target="_blank" rel="noreferrer" v-html="icon('external', 14) + ' 查看原始词条'" /><button v-else @click="openInsight('info')">查看条目信息</button></footer>
             <ArticleComments :key="activeArticle.id" :article-id="activeArticle.id" :user="user" :online="apiState === 'online'" @login="requestLogin" />
           </article>
@@ -1043,7 +1066,7 @@ onUnmounted(() => {
     </div>
     <div v-if="dialog" class="dialog-backdrop" @click.self="!submitting && (dialog = null)">
       <section class="action-dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
-        <header><h2 id="dialog-title">{{ { article: '新建中文条目', category: '新建学科分类', feedback: '提出补充 / 纠错', connection: '连接与功能状态' }[dialog] }}</h2><button class="icon-btn" aria-label="关闭弹窗" :disabled="submitting" @click="dialog = null" v-html="icon('close')" /></header>
+        <header><h2 id="dialog-title">{{ { article: '新建中文条目', category: '新建学科分类', feedback: '提出补充 / 纠错', connection: '连接与功能状态', supplement: '补充条目内容' }[dialog] }}</h2><button class="icon-btn" aria-label="关闭弹窗" :disabled="submitting" @click="dialog = null" v-html="icon('close')" /></header>
         <div v-if="dialog === 'connection'" class="connection-status">
           <p>知识库：{{ apiState === 'online' ? '已连接' : '未连接，正在展示内置样例' }}</p>
           <p>数据库中的已发布条目：{{ stats?.articleCount ?? 0 }} 篇</p>
@@ -1062,10 +1085,16 @@ onUnmounted(() => {
             <p class="muted">可直接粘贴 LaTeX。行内公式用 <code>\(...\)</code>，独立公式用 <code>\[...\]</code> 或 <code>$$...$$</code>。保存后可在审核管理查看排版。</p>
             <p class="muted">保存后可在知识库阅读，内容标记为“社区投稿 · 待核验”。提交的原创内容按 CC BY-SA 4.0 分享。</p>
           </template>
+          <template v-else-if="dialog === 'supplement'">
+            <p class="muted">发布后追加到「{{ supplementTarget?.title }}」正文末尾，并自动标记补充日期。</p>
+            <label>小节标题<input v-model="supplementDraft.title" required maxlength="255" placeholder="例如：变式 2 · 求代换后的取值范围" /></label>
+            <label>补充正文<textarea v-model="supplementDraft.content" required maxlength="100000" rows="7" /></label>
+            <p class="muted">行内公式用 <code>\(...\)</code>，独立公式用 <code>\[...\]</code> 或 <code>$$...$$</code>。</p>
+          </template>
           <label v-else-if="dialog === 'category'">分类名称<input v-model="categoryName" required maxlength="80" placeholder="例如：计算几何" /></label>
           <template v-else><p class="muted">建议会提交到管理员的「审核管理 → 纠错反馈」。你可以在左侧「我的反馈」查看处理结果。</p><label>补充或纠错内容<textarea v-model="feedbackText" required maxlength="4000" rows="6" placeholder="指出具体问题，并尽可能提供依据…" /></label></template>
           <p v-if="dialogError" class="inline-error" role="alert">{{ dialogError }}</p>
-          <footer><button class="text-btn" type="button" :disabled="submitting" @click="dialog = null">取消</button><button class="primary-btn" type="submit" :disabled="submitting || apiState !== 'online'">{{ submitting ? '正在保存…' : dialog === 'feedback' ? '提交建议' : '保存' }}</button></footer>
+          <footer><button class="text-btn" type="button" :disabled="submitting" @click="dialog = null">取消</button><button class="primary-btn" type="submit" :disabled="submitting || apiState !== 'online'">{{ submitting ? '正在保存…' : dialog === 'feedback' ? '提交建议' : dialog === 'supplement' ? '发布补充' : '保存' }}</button></footer>
           <p v-if="apiState !== 'online'" class="inline-error">后端未连接，暂时无法保存；请使用知识库菜单重新连接。</p>
         </form>
       </section>

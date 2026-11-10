@@ -8,13 +8,14 @@ import (
 )
 
 type sectionResponse struct {
-	ID          uint   `json:"id"`
-	Title       string `json:"title"`
-	Content     string `json:"content"`
-	ContentHTML string `json:"contentHtml,omitempty"`
-	Level       int    `json:"level,omitempty"`
-	Position    int    `json:"position"`
-	Formula     string `json:"formula,omitempty"`
+	ID             uint       `json:"id"`
+	Title          string     `json:"title"`
+	Content        string     `json:"content"`
+	ContentHTML    string     `json:"contentHtml,omitempty"`
+	Level          int        `json:"level,omitempty"`
+	Position       int        `json:"position"`
+	Formula        string     `json:"formula,omitempty"`
+	SupplementedAt *time.Time `json:"supplementedAt,omitempty"`
 }
 
 type articleResponse struct {
@@ -77,12 +78,19 @@ func toArticleResponse(article model.Article, saved bool) articleResponse {
 		if section.Hidden {
 			continue
 		}
-		formula := ""
-		formulae := decodeList(section.Formulae)
-		if len(formulae) > 0 {
-			formula = formulae[0]
-		}
-		result.Sections = append(result.Sections, sectionResponse{ID: section.ID, Title: section.Title, Content: section.Content, Formula: formula, ContentHTML: section.ContentHTML, Level: section.Level, Position: section.Position})
+		result.Sections = append(result.Sections, toSectionResponse(section))
+	}
+	return result
+}
+
+func toSectionResponse(section model.Section) sectionResponse {
+	result := sectionResponse{
+		ID: section.ID, Title: section.Title, Content: section.Content,
+		ContentHTML: section.ContentHTML, Level: section.Level, Position: section.Position,
+		SupplementedAt: section.SupplementedAt,
+	}
+	if formulae := decodeList(section.Formulae); len(formulae) > 0 {
+		result.Formula = formulae[0]
 	}
 	return result
 }

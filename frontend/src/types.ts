@@ -1,4 +1,4 @@
-export type Section = { id: number; title: string; content: string; formula?: string; contentHtml?: string; level?: number; position?: number }
+export type Section = { id: number; title: string; content: string; formula?: string; contentHtml?: string; level?: number; position?: number; supplementedAt?: string }
 export type Article = {
   published?: boolean
   id: number

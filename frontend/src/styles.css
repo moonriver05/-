@@ -283,6 +283,8 @@ button.quote-strip:focus-visible{outline:2px solid #bd8e38;outline-offset:2px}
 .section-heading h3 { margin: 0; font: 600 18px/1.6 "Noto Serif SC", serif; }
 .section-heading h2 { line-height: 1.6; }
 .section-heading .section-annotate { flex-shrink: 0; }
+.article-body section > .supplement-date { margin: -4px 0 10px; color: var(--muted); font: 12px/1.6 system-ui, sans-serif; }
+.append-supplement { margin-bottom: 14px; min-height: 34px; }
 .sub-section { padding-left: 14px; border-left: 2px solid var(--line); }
 .intro-section .section-heading h2 { font-size: 16px; color: var(--muted); }
 .article-body section > .plain-section { white-space: pre-wrap; text-align: left; }
