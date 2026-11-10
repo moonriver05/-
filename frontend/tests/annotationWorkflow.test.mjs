@@ -24,11 +24,11 @@ const appURL = compileSFC(new URL('../src/App.vue', import.meta.url), { WikiCont
 const App = (await import(appURL)).default
 const flush = async () => { await new Promise(resolve => setTimeout(resolve, 15)); await nextTick() }
 
-test('saved examples typeset pasted formulas and an administrator can append a dated example', async () => {
+test('published and appended examples fold hints and answers independently while preserving formula rendering', async () => {
   const saved = { ...api }
   const formula = '\\[\\frac{x+x^3}{1+x^4}\\]'
   const inline = '\\(u\\ge 2\\)'
-  const content = '题目\n已知 ' + formula + '\n求 ' + inline + ' 时的函数值。\n<img src="https://example.org/test.png">'
+  const content = '题目\n已知 ' + formula + '\n求 ' + inline + ' 时的函数值。\n提示　试试整体代换。\n推导　分子分母同除。\n答案　代入验证。\n来源定位：课堂例题。\n<img src="https://example.org/test.png">'
   const article = { ...articles[0], pageId: -50, published: true, kind: '例题', title: '整体代换', excerpt: '题目 已知 \\[\\frac{x+', sections: [{ id: 101, title: '正文', content, position: 1 }] }
   const supplementedAt = '2026-11-10T05:30:00Z'
   let submitted
@@ -57,6 +57,23 @@ test('saved examples typeset pasted formulas and an administrator can append a d
     assert.equal(reader.querySelectorAll('.katex-display').length, 1)
     assert.equal(reader.querySelector('img'), null)
     assert.match(reader.textContent, /<img src=/)
+    const [hint, answer] = reader.querySelectorAll('.exercise-fold')
+    assert.equal(hint.querySelector('summary').getAttribute('aria-label'), '提示')
+    assert.equal(answer.querySelector('summary').getAttribute('aria-label'), '答案')
+    assert.equal(hint.open, false)
+    assert.equal(answer.open, false)
+    assert.match(hint.textContent, /整体代换/)
+    assert.doesNotMatch(hint.textContent, /分子分母/)
+    assert.match(answer.textContent, /分子分母.*\n答案/)
+    assert.doesNotMatch(answer.textContent, /来源定位/)
+    hint.querySelector('summary').click()
+    assert.equal(hint.open, true)
+    assert.equal(answer.open, false)
+    answer.querySelector('summary').click()
+    assert.equal(answer.open, true)
+    hint.querySelector('summary').click()
+    assert.equal(hint.open, false)
+    assert.equal(answer.open, true)
     assert.doesNotMatch(document.querySelector('.article-card').textContent, /\\frac/)
     assert.equal(document.querySelector('.article-body .lead'), null, 'formula-heavy excerpts should not duplicate the rendered body')
 
@@ -71,6 +88,7 @@ test('saved examples typeset pasted formulas and an administrator can append a d
     const preview = document.querySelector('.management-preview')
     assert.equal(preview.querySelectorAll('.katex').length, 2)
     assert.equal(preview.querySelectorAll('.katex-display').length, 1)
+    assert.equal(preview.querySelectorAll('details.exercise-fold:not([open])').length, 2)
 
     const closeModeration = [...document.querySelectorAll('.content-management button')].find(button => button.textContent === '关闭')
     closeModeration.click()
@@ -78,18 +96,21 @@ test('saved examples typeset pasted formulas and an administrator can append a d
     document.querySelector('.append-supplement').click()
     await nextTick()
     const form = document.querySelector('.action-dialog form')
-    for (const [selector, value] of [['input', '第二道题'], ['textarea', inline]]) {
+    const nextContent = '题目：求函数值。\n**提示**：先化简。\n【答案】\n' + inline
+    for (const [selector, value] of [['input', '第二道题'], ['textarea', nextContent]]) {
       const field = form.querySelector(selector)
       field.value = value
       field.dispatchEvent(new Event('input', { bubbles: true }))
     }
     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
     await flush()
-    assert.deepEqual(submitted, { id: article.id, title: '第二道题', content: inline })
+    assert.deepEqual(submitted, { id: article.id, title: '第二道题', content: nextContent })
     assert.deepEqual([...document.querySelectorAll('.article-body section[data-section]')].map(section => section.id), ['section-101', 'section-102'])
     assert.equal(document.querySelector('#section-102 time').getAttribute('datetime'), supplementedAt)
     assert.match(document.querySelector('#section-102 time').textContent, /2026/)
     assert.equal(document.querySelectorAll('#section-102 .katex').length, 1)
+    assert.equal(document.querySelectorAll('#section-102 details.exercise-fold:not([open])').length, 2)
+    assert.equal(answer.open, true)
     assert.equal(scrolled.id, 'section-102')
   } finally {
     app.unmount()

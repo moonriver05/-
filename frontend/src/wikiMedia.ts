@@ -14,33 +14,68 @@ export function hasFormulaMarkup(text: string): boolean {
   return mathOpening.test(text)
 }
 
-export function articleExcerpt(text: string): string {
+export function articleExcerpt(text: string, exercise = false): string {
   // An excerpt can end halfway through a formula, so keep only its opening prose.
   const formulaStart = text.search(mathOpening)
-  if (formulaStart < 0) return text
-  const prose = text.slice(0, formulaStart).trimEnd()
+  const foldStart = exercise ? exerciseParts(text).find(part => part.kind !== 'plain')?.start : undefined
+  const end = Math.min(formulaStart < 0 ? text.length : formulaStart, foldStart ?? text.length)
+  if (end === text.length) return text
+  const prose = text.slice(0, end).trimEnd()
+  if (!prose && foldStart === 0) return '查看例题'
   return prose ? prose + '…' : '含数学公式'
 }
 
-export function plainWikiHTML(text: string): string {
-  const escape = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-  const formulas = /\\\[([\s\S]{1,2000}?)\\\]|\\\(([^\n]{1,2000}?)\\\)|\$\$([\s\S]{1,2000}?)\$\$/g
-  let from = 0
-  let html = ''
-  let count = 0
-  for (const match of text.matchAll(formulas)) {
-    const raw = match[0]
-    const tex = match[1] ?? match[2] ?? match[3] ?? ''
-    const display = match[2] == null
-    html += escape(text.slice(from, match.index))
-    if (++count <= 48) {
-      html += `<span data-tex="${escape(tex)}" data-display="${display}">${escape(raw)}</span>`
-    } else {
-      html += escape(raw)
-    }
-    from = match.index + raw.length
+const escape = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+const formulas = /\\\[([\s\S]{1,2000}?)\\\]|\\\(([^\n]{1,2000}?)\\\)|\$\$([\s\S]{1,2000}?)\$\$/g
+const exerciseHeadings = /^[^\S\r\n]*(?:#{1,6}[^\S\r\n]+)?(?:\*\*|【)?(题目|提示|解题步骤|推导|解析|解答|参考答案|答案|来源定位|来源|出处)(?:\*\*|】)?(?=[^\S\r\n]|[:：]|\r?$)[^\S\r\n]*[:：]?[^\S\r\n]*(?:\r?\n)?/gm
+
+type ExercisePart = { kind: 'plain' | 'hint' | 'answer'; start: number; end: number; labelEnd: number }
+
+function exerciseParts(text: string): ExercisePart[] {
+  // Keep offsets while skipping headings that occur inside a formula.
+  const masked = text.replace(formulas, formula => formula.replace(/[^\r\n]/g, '\0'))
+  const parts: ExercisePart[] = [{ kind: 'plain', start: 0, end: text.length, labelEnd: 0 }]
+  for (const match of masked.matchAll(exerciseHeadings)) {
+    const label = match[1]
+    const kind = label === '提示' ? 'hint' : /^(题目|来源定位|来源|出处)$/.test(label ?? '') ? 'plain' : 'answer'
+    const previous = parts[parts.length - 1]!
+    if (previous.kind === kind && kind !== 'hint') continue
+    const start = match.index!
+    previous.end = start
+    const hideLabel = kind === 'hint' || label === '答案' || label === '参考答案'
+    parts.push({ kind, start, end: text.length, labelEnd: start + (hideLabel ? match[0].length : 0) })
   }
-  return `<p class="plain-section">${html}${escape(text.slice(from))}</p>`
+  return parts
+}
+
+export function plainWikiHTML(text: string, exercise = false): string {
+  let count = 0
+  function renderParagraph(value: string): string {
+    let from = 0
+    let html = ''
+    for (const match of value.matchAll(formulas)) {
+      const raw = match[0]
+      const tex = match[1] ?? match[2] ?? match[3] ?? ''
+      const display = match[2] == null
+      html += escape(value.slice(from, match.index))
+      if (++count <= 48) {
+        html += `<span data-tex="${escape(tex)}" data-display="${display}">${escape(raw)}</span>`
+      } else {
+        html += escape(raw)
+      }
+      from = match.index + raw.length
+    }
+    return `<p class="plain-section">${html}${escape(value.slice(from))}</p>`
+  }
+  if (!exercise) return renderParagraph(text)
+  return exerciseParts(text).map(({ kind, start, end, labelEnd }) => {
+    if (start === end) return ''
+    if (kind === 'plain') return renderParagraph(text.slice(start, end))
+    const label = kind === 'hint' ? '提示' : '答案'
+    const marker = labelEnd > start ? `<span class="exercise-source-label">${escape(text.slice(start, labelEnd))}</span>` : ''
+    // Keep the original label in the DOM so saved text anchors retain their offsets.
+    return `<details class="exercise-fold"><summary aria-label="${label}"></summary><div class="exercise-fold-body">${marker}${renderParagraph(text.slice(labelEnd, end))}</div></details>`
+  }).join('')
 }
 
 function https(value: string) {

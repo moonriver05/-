@@ -5,12 +5,12 @@ import katex from 'katex'
 import 'katex/dist/katex.min.css'
 import { paintHighlights, type Highlight } from '../annotationHighlights'
 
-const props = defineProps<{ html?: string; text?: string; annotations?: Highlight[]; activeAnnotationId?: number | null }>()
+const props = defineProps<{ html?: string; text?: string; exercise?: boolean; annotations?: Highlight[]; activeAnnotationId?: number | null }>()
 const emit = defineEmits<{ annotationClick: [ids: number[]] }>()
 const root = ref<HTMLElement>()
 const manifest = ref<Record<string, MediaEntry>>({})
 const mediaReady = ref(!import.meta.env?.VITE_MEDIA_MANIFEST_URL)
-const clean = computed(() => safeWikiHTML(props.html || plainWikiHTML(props.text ?? ''), manifest.value, mediaReady.value ? imageMode : 'off'))
+const clean = computed(() => safeWikiHTML(props.html || plainWikiHTML(props.text ?? '', props.exercise), manifest.value, mediaReady.value ? imageMode : 'off'))
 
 function highlight() {
   if (root.value) paintHighlights(root.value, props.annotations ?? [], props.activeAnnotationId)

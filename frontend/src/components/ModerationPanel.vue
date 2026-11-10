@@ -84,7 +84,7 @@ async function showPreview(id: number) {
         <p v-if="!count" class="empty-state">当前分类下没有记录。</p>
         <article v-for="item in section === 'articles' ? articles : []" :key="item.id" class="moderation-note">
           <div class="community-heading"><strong>{{ item.title }}</strong><small>{{ item.category }} · #{{ item.id }}</small></div>
-          <p>{{ articleExcerpt(item.excerpt) }}</p><small class="muted">{{ status === 'deleted' ? '已删除 · 可恢复' : articleReviewLabel(item.reviewStatus) }} · {{ item.published && status !== 'deleted' ? '公开可见' : '未公开' }}</small>
+          <p>{{ articleExcerpt(item.excerpt, item.kind === '例题') }}</p><small class="muted">{{ status === 'deleted' ? '已删除 · 可恢复' : articleReviewLabel(item.reviewStatus) }} · {{ item.published && status !== 'deleted' ? '公开可见' : '未公开' }}</small>
           <div class="community-form-footer"><button class="text-btn" :disabled="previewBusy" @click="showPreview(item.id)">查看完整正文</button><button v-if="status === 'deleted'" class="primary-btn" :disabled="previewBusy" @click="actArticle(item, 'restore')">恢复条目</button><template v-else><button class="text-btn danger" :disabled="previewBusy" @click="actArticle(item, 'delete')">删除</button><button v-if="item.reviewStatus !== 'rejected'" class="text-btn" :disabled="previewBusy" @click="actArticle(item, 'rejected')">驳回</button><button v-if="item.reviewStatus !== 'approved'" class="primary-btn" :disabled="previewBusy" @click="actArticle(item, 'approved')">通过并公开</button></template></div>
         </article>
         <article v-for="note in section === 'annotations' ? notes : []" :key="note.id" class="moderation-note">
@@ -99,7 +99,7 @@ async function showPreview(id: number) {
         </article>
       </template>
       <div class="community-form-footer"><button class="text-btn" :disabled="page <= 1 || busy || previewBusy" @click="page--; load()">上一页</button><span>{{ page }} / {{ Math.max(1, Math.ceil(total / 50)) }}</span><button class="text-btn" :disabled="page * 50 >= total || busy || previewBusy" @click="page++; load()">下一页</button></div>
-      <section v-if="preview" ref="previewElement" class="management-preview" tabindex="-1" aria-label="条目正文预览"><div class="community-heading"><h2>{{ preview.title }}</h2><button class="text-btn" @click="preview = null">收起正文</button></div><p class="muted">{{ articleReviewLabel(preview.reviewStatus) }}</p><div v-for="part in preview.sections" :key="part.id"><h3>{{ part.title }}</h3><WikiContent :html="part.contentHtml" :text="part.content" /><pre v-if="part.formula">{{ part.formula }}</pre></div></section>
+      <section v-if="preview" ref="previewElement" class="management-preview" tabindex="-1" aria-label="条目正文预览"><div class="community-heading"><h2>{{ preview.title }}</h2><button class="text-btn" @click="preview = null">收起正文</button></div><p class="muted">{{ articleReviewLabel(preview.reviewStatus) }}</p><div v-for="part in preview.sections" :key="part.id"><h3>{{ part.title }}</h3><WikiContent :html="part.contentHtml" :text="part.content" :exercise="preview.kind === '例题'" /><pre v-if="part.formula">{{ part.formula }}</pre></div></section>
       </template>
     </section>
   </div>

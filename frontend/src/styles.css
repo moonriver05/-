@@ -317,6 +317,15 @@ button.quote-strip:focus-visible{outline:2px solid #bd8e38;outline-offset:2px}
 .wiki-content .katex-display { overflow-x: auto; overflow-y: hidden; padding: 12px 4px; margin: 12px 0; }
 .wiki-content .katex-display > .katex { white-space: nowrap; }
 .wiki-content .plain-section [data-display="true"] > .katex-display { margin: 4px 0; padding: 4px; }
+.exercise-fold { margin: 12px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--sidebar); }
+.exercise-fold > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding: 8px 14px; cursor: pointer; list-style: none; font: 600 14px/1.5 system-ui, sans-serif; }
+.exercise-fold > summary::-webkit-details-marker { display: none; }
+.exercise-fold > summary::before { content: attr(aria-label); }
+.exercise-fold > summary::after { content: ""; width: 7px; height: 7px; margin-right: 2px; border: solid currentColor; border-width: 0 1.5px 1.5px 0; transform: translateY(-2px) rotate(45deg); }
+.exercise-fold[open] > summary::after { transform: translateY(2px) rotate(225deg); }
+.exercise-fold > summary:focus-visible { outline: 2px solid var(--red); outline-offset: -3px; border-radius: 8px; }
+.exercise-fold-body { padding: 12px 14px; border-top: 1px solid var(--line); }
+.exercise-source-label { display: none; }
 .wiki-inline-math { font-family: "Cambria Math", Georgia, serif; font-style: italic; }
 .math-fallback { display: inline-block; max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.7 Consolas, monospace; padding: 5px 8px; border: 1px dashed #b99454; background: #fff6e4; color: #75501c; }
 .wiki-ref { font: 10px/1 sans-serif; vertical-align: super; margin: 0 2px; }

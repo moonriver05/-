@@ -926,7 +926,7 @@ onUnmounted(() => {
           <div v-if="listError" class="inline-error" role="alert">{{ listError }}<button @click="loadArticles()">重试</button></div>
           <button v-for="article in filteredArticles" :key="article.id" class="article-card" :class="{ active: activeArticle.id === article.id }" @click="selectArticle(article)">
             <div class="article-card-top"><span class="type-icon">{{ article.kind === '算法' ? 'ƒ' : article.kind === '例题' ? '∑' : '◫' }}</span><span class="difficulty" :data-level="article.difficulty">{{ article.difficulty }}</span><span class="saved" :class="{ on: article.saved }" v-html="icon('bookmark', 15)" /></div>
-            <h3>{{ article.title }}</h3><p>{{ articleExcerpt(article.excerpt) }}</p>
+            <h3>{{ article.title }}</h3><p>{{ articleExcerpt(article.excerpt, article.kind === '例题') }}</p>
             <div class="article-meta"><span>{{ article.category }}</span><span>{{ article.readMinutes }} 分钟</span></div>
           </button>
           <div v-if="!loadingList && !filteredArticles.length && !listError" class="empty-state"><span v-html="icon('search', 28)" /><strong>{{ query ? '没有找到匹配的词条' : '当前分类暂无条目' }}</strong><small>{{ query ? '试试其他标题关键词，或回到全部条目' : '可新建条目，或选择其他分类' }}</small><button class="text-btn" @click="chooseCollection('全部条目')">查看全部条目</button></div>
@@ -951,7 +951,7 @@ onUnmounted(() => {
           <article v-if="!loadingArticle && !detailError" class="article-body">
             <div class="article-kicker">{{ activeArticle.category }}</div>
             <h1>{{ activeArticle.title }}</h1>
-            <p v-if="activeArticle.contentVersion !== 2 && activeArticle.excerpt && !hasFormulaMarkup(activeArticle.excerpt)" class="lead">{{ activeArticle.excerpt }}</p>
+            <p v-if="activeArticle.contentVersion !== 2 && activeArticle.excerpt && !hasFormulaMarkup(activeArticle.excerpt)" class="lead">{{ articleExcerpt(activeArticle.excerpt, activeArticle.kind === '例题') }}</p>
             <div class="article-stats"><span>最后更新：{{ formatDate(activeArticle.updatedAt) }}</span><span>预计阅读 {{ activeArticle.readMinutes }} 分钟</span><span>{{ activeArticle.license ?? 'CC BY-SA 4.0' }}</span></div>
             <details v-if="activeArticle.contentWarnings?.length" class="content-quality"><summary>内容转换说明 · 部分模板待展开</summary><p v-for="warning in activeArticle.contentWarnings" :key="warning">{{ warning }}</p></details>
             <details v-if="activeArticle.sections.length > 3" class="article-toc"><summary>本页目录 · {{ activeArticle.sections.filter(s => s.position !== 1000001).length }} 节</summary><nav><a v-for="section in activeArticle.sections" :key="section.id" :href="`#section-${section.id}`" :class="{ nested: (section.level ?? 2) > 2 }">{{ section.title }}</a></nav></details>
@@ -959,7 +959,7 @@ onUnmounted(() => {
             <section v-for="(section, index) in activeArticle.sections" :id="`section-${section.id}`" :key="section.id" :data-section="section.id" :class="{ 'intro-section': activeArticle.contentVersion === 2 && section.position === 0, 'sub-section': (section.level ?? 2) > 2 }">
               <div class="section-heading"><span>{{ String(index + 1).padStart(2, '0') }}</span><component :is="(section.level ?? 2) > 2 ? 'h3' : 'h2'">{{ section.title }}</component><button v-if="section.content" class="section-annotate" :aria-label="`批注${section.title}`" @click="annotateSection(section)">批注</button></div>
               <p v-if="section.supplementedAt" class="supplement-date">补充于 <time :datetime="section.supplementedAt">{{ new Date(section.supplementedAt).toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' }) }}</time></p>
-              <WikiContent :html="section.contentHtml" :text="section.content" :annotations="highlightsFor(section.id)" :active-annotation-id="activeAnnotationId" @annotation-click="deselectHighlightedNote" />
+              <WikiContent :html="section.contentHtml" :text="section.content" :exercise="activeArticle.kind === '例题'" :annotations="highlightsFor(section.id)" :active-annotation-id="activeAnnotationId" @annotation-click="deselectHighlightedNote" />
               <div v-if="section.formula" class="formula-card"><code>{{ section.formula }}</code><button title="复制公式" @click="copyText(section.formula)">复制</button></div>
               <button v-if="sectionNotes.get(section.id)?.length" class="margin-note" :aria-label="`查看${section.title}关联批注`" title="查看关联批注" @click="showSectionNotes(section.id)">
                 <span v-html="icon('comment', 14)" />{{ sectionNotes.get(section.id)?.length }}
@@ -1082,6 +1082,7 @@ onUnmounted(() => {
             <label>学科分类<select v-model="articleDraft.category"><template v-for="subject in subjects" :key="subject.name"><option :value="subject.name">{{ subject.name }}</option><option v-for="child in subject.children" :key="child.name" :value="child.name">{{ child.name }}</option></template></select></label>
             <div class="dialog-columns"><label>条目类型<select v-model="articleDraft.kind"><option>概念</option><option>算法</option><option>例题</option></select></label><label>学习难度<select v-model="articleDraft.difficulty"><option>入门</option><option>进阶</option><option>高级</option></select></label></div>
             <label>条目正文<textarea v-model="articleDraft.content" required maxlength="100000" rows="7" placeholder="用中文描述定义、前提、步骤或例题…" /></label>
+            <p v-if="articleDraft.kind === '例题'" class="muted">将「题目」「提示」「推导」「答案」分别写在行首。提示和答案会各自折叠，推导放在答案框内。</p>
             <p class="muted">可直接粘贴 LaTeX。行内公式用 <code>\(...\)</code>，独立公式用 <code>\[...\]</code> 或 <code>$$...$$</code>。保存后可在审核管理查看排版。</p>
             <p class="muted">保存后可在知识库阅读，内容标记为“社区投稿 · 待核验”。提交的原创内容按 CC BY-SA 4.0 分享。</p>
           </template>
@@ -1089,6 +1090,7 @@ onUnmounted(() => {
             <p class="muted">发布后追加到「{{ supplementTarget?.title }}」正文末尾，并自动标记补充日期。</p>
             <label>小节标题<input v-model="supplementDraft.title" required maxlength="255" placeholder="例如：变式 2 · 求代换后的取值范围" /></label>
             <label>补充正文<textarea v-model="supplementDraft.content" required maxlength="100000" rows="7" /></label>
+            <p v-if="activeArticle.kind === '例题'" class="muted">将「题目」「提示」「推导」「答案」分别写在行首。提示和答案会各自折叠，推导放在答案框内。</p>
             <p class="muted">行内公式用 <code>\(...\)</code>，独立公式用 <code>\[...\]</code> 或 <code>$$...$$</code>。</p>
           </template>
           <label v-else-if="dialog === 'category'">分类名称<input v-model="categoryName" required maxlength="80" placeholder="例如：计算几何" /></label>
