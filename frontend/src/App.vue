@@ -9,7 +9,7 @@ import AiMessage from './components/AiMessage.vue'
 import { safeSourceURL } from './aiText'
 import { answerBadge, groundingNotice, webSearchNotice } from './answerStatus'
 import WikiContent from './components/WikiContent.vue'
-import { articleExcerpt } from './wikiMedia'
+import { articleExcerpt, hasFormulaMarkup } from './wikiMedia'
 import AuthPage from './components/AuthPage.vue'
 import ArticleComments from './components/ArticleComments.vue'
 import ModerationPanel from './components/ModerationPanel.vue'
@@ -930,7 +930,7 @@ onUnmounted(() => {
           <article v-if="!loadingArticle && !detailError" class="article-body">
             <div class="article-kicker">{{ activeArticle.category }}</div>
             <h1>{{ activeArticle.title }}</h1>
-            <p v-if="activeArticle.contentVersion !== 2" class="lead">{{ activeArticle.excerpt }}</p>
+            <p v-if="activeArticle.contentVersion !== 2 && activeArticle.excerpt && !hasFormulaMarkup(activeArticle.excerpt)" class="lead">{{ activeArticle.excerpt }}</p>
             <div class="article-stats"><span>最后更新：{{ formatDate(activeArticle.updatedAt) }}</span><span>预计阅读 {{ activeArticle.readMinutes }} 分钟</span><span>{{ activeArticle.license ?? 'CC BY-SA 4.0' }}</span></div>
             <details v-if="activeArticle.contentWarnings?.length" class="content-quality"><summary>内容转换说明 · 部分模板待展开</summary><p v-for="warning in activeArticle.contentWarnings" :key="warning">{{ warning }}</p></details>
             <details v-if="activeArticle.sections.length > 3" class="article-toc"><summary>本页目录 · {{ activeArticle.sections.filter(s => s.position !== 1000001).length }} 节</summary><nav><a v-for="section in activeArticle.sections" :key="section.id" :href="`#section-${section.id}`" :class="{ nested: (section.level ?? 2) > 2 }">{{ section.title }}</a></nav></details>

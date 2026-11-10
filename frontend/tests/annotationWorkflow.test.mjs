@@ -52,6 +52,7 @@ test('saved plain-text examples typeset pasted formulas in the reader and full m
     assert.equal(reader.querySelector('img'), null)
     assert.match(reader.textContent, /<img src=/)
     assert.doesNotMatch(document.querySelector('.article-card').textContent, /\\frac/)
+    assert.equal(document.querySelector('.article-body .lead'), null, 'formula-heavy excerpts should not duplicate the rendered body')
 
     const moderation = [...document.querySelectorAll('.topbar button')].find(button => button.textContent === '审核管理')
     moderation.click()
@@ -100,6 +101,7 @@ test('only the selected note highlights: publish, reload, switch users, toggle o
     document.querySelector('.article-card').click()
     await flush()
     assert.equal(document.querySelector('.article-body mark'), null, 'other users’ notes are not highlighted by default')
+    assert.equal(document.querySelector('.article-body .lead').textContent, article.excerpt, 'plain excerpts remain visible')
     const strong = document.querySelector('#section-101 strong')
     const range = document.createRange()
     range.setStart(strong.firstChild, 0)

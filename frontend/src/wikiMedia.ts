@@ -8,10 +8,15 @@ export const imageMode: ImageMode = ['external', 'mirror-only', 'off'].includes(
   ? buildEnv.VITE_WIKI_IMAGE_MODE : 'external'
 const allowedOrigins = new Set<string>((buildEnv.VITE_MEDIA_ALLOWED_ORIGINS ?? '').split(',').map((s: string) => s.trim()).filter(Boolean))
 let manifestPromise: Promise<MediaManifest> | undefined
+const mathOpening = /\\(?:\[|\()|\$\$/
+
+export function hasFormulaMarkup(text: string): boolean {
+  return mathOpening.test(text)
+}
 
 export function articleExcerpt(text: string): string {
   // An excerpt can end halfway through a formula, so keep only its opening prose.
-  const formulaStart = text.search(/\\(?:\[|\()|\$\$/)
+  const formulaStart = text.search(mathOpening)
   if (formulaStart < 0) return text
   const prose = text.slice(0, formulaStart).trimEnd()
   return prose ? prose + '…' : '含数学公式'
